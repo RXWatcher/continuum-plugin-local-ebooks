@@ -75,6 +75,38 @@ func (h *HTTPClient) GetJSON(ctx context.Context, url string) ([]byte, error) {
 	return body, nil
 }
 
+// GetJSONWithHeaders does GET with additional request headers, otherwise
+// identical to GetJSON. Used by keyed sources that require non-standard auth
+// headers (e.g. ISBNdb uses a bare Authorization header without Bearer prefix).
+func (h *HTTPClient) GetJSONWithHeaders(ctx context.Context, url string, headers map[string]string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	if h.UA != "" {
+		req.Header.Set("User-Agent", h.UA)
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := h.Client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, SoftLimit))
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode == 404 {
+		return nil, ErrNotFound
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("source: GET %s status %d", url, resp.StatusCode)
+	}
+	return body, nil
+}
+
 // UnmarshalInto parses JSON into v with a clear error.
 func UnmarshalInto(body []byte, v any) error {
 	if err := json.Unmarshal(body, v); err != nil {

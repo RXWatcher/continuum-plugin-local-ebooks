@@ -1,0 +1,265 @@
+package ebookbackend
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"log/slog"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+
+	"github.com/ContinuumApp/continuum-plugin-ebooksdb/internal/store"
+)
+
+// Store is the minimal store-layer interface the server depends on. Defined
+// here (not in package store) so unit tests can substitute a fake without
+// pulling in pgx.
+type Store interface {
+	ListEbooks(ctx context.Context, p store.ListParams) (store.Paged[store.Ebook], error)
+	GetEbookByID(ctx context.Context, id string) (store.EbookDetail, error)
+	GetCover(ctx context.Context, id string) ([]byte, string, error)
+	GetEbookPath(ctx context.Context, id string) (string, string, error)
+	ListAuthors(ctx context.Context, p store.ListParams) (store.Paged[store.Author], error)
+	ListSeries(ctx context.Context, p store.ListParams) (store.Paged[store.Series], error)
+	ListGenres(ctx context.Context, p store.ListParams) (store.Paged[store.Genre], error)
+}
+
+// Server hosts the ebook_backend.v1 contract handlers. Use NewServer to
+// construct one; mount the returned http.Handler under whatever prefix the
+// host expects.
+type Server struct {
+	store  Store
+	logger *slog.Logger
+}
+
+// NewServer constructs a Server. If logger is nil, slog.Default is used.
+func NewServer(s Store, logger *slog.Logger) *Server {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &Server{store: s, logger: logger}
+}
+
+// --- list ------------------------------------------------------------------
+
+// List handles GET /catalog. Accepts library, page, limit, search query
+// params.
+func (s *Server) List(w http.ResponseWriter, r *http.Request) {
+	p := store.ListParams{
+		Library: r.URL.Query().Get("library"),
+		Search:  r.URL.Query().Get("search"),
+		Page:    atoi(r.URL.Query().Get("page")),
+		Limit:   atoi(r.URL.Query().Get("limit")),
+	}
+	out, err := s.store.ListEbooks(r.Context(), p)
+	if err != nil {
+		s.serverError(w, "list ebooks", err)
+		return
+	}
+	wire := Page[Book]{
+		Items: make([]Book, len(out.Items)),
+		Total: out.Total, Page: out.Page, Limit: out.Limit,
+	}
+	for i, e := range out.Items {
+		b := ToBook(e)
+		if b.HasCover {
+			b.CoverURL = "/catalog/" + b.ID + "/cover"
+		}
+		wire.Items[i] = b
+	}
+	writeJSON(w, http.StatusOK, wire)
+}
+
+// Detail handles GET /catalog/{id}.
+func (s *Server) Detail(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "id required")
+		return
+	}
+	d, err := s.store.GetEbookByID(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	if err != nil {
+		s.serverError(w, "get ebook", err)
+		return
+	}
+	wire := ToBookDetail(d)
+	if wire.HasCover {
+		wire.CoverURL = "/catalog/" + wire.ID + "/cover"
+	}
+	if len(wire.Files) > 0 {
+		wire.Files[0].URL = "/catalog/" + wire.ID + "/file"
+	}
+	writeJSON(w, http.StatusOK, wire)
+}
+
+// Cover handles GET /catalog/{id}/cover. The size query parameter is
+// advisory; v1 always returns the stored bytes.
+func (s *Server) Cover(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "id required")
+		return
+	}
+	bytes, contentType, err := s.store.GetCover(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "no cover")
+		return
+	}
+	if err != nil {
+		s.serverError(w, "get cover", err)
+		return
+	}
+	if contentType == "" {
+		contentType = "image/jpeg"
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Length", strconv.Itoa(len(bytes)))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(bytes)
+}
+
+// File handles GET /catalog/{id}/file. Streams the ebook from disk with a
+// Content-Disposition: attachment header.
+func (s *Server) File(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "id required")
+		return
+	}
+	path, format, err := s.store.GetEbookPath(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	if err != nil {
+		s.serverError(w, "get ebook path", err)
+		return
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		s.logger.Warn("open ebook file", "id", id, "path", path, "err", err)
+		writeError(w, http.StatusInternalServerError, "open file")
+		return
+	}
+	defer f.Close()
+	stat, err := f.Stat()
+	if err != nil {
+		s.serverError(w, "stat file", err)
+		return
+	}
+	filename := sanitizeFilename(filepath.Base(path))
+	if filename == "" {
+		filename = id + "." + ExtForFormat(format)
+	}
+	w.Header().Set("Content-Type", FormatToMime(format))
+	w.Header().Set("Content-Disposition", `attachment; filename="`+filename+`"`)
+	w.Header().Set("Content-Length", strconv.FormatInt(stat.Size(), 10))
+	w.WriteHeader(http.StatusOK)
+	if _, err := io.Copy(w, f); err != nil {
+		// Connection likely closed; nothing useful to send.
+		s.logger.Debug("copy ebook file", "id", id, "err", err)
+	}
+}
+
+// Authors handles GET /catalog/authors.
+func (s *Server) Authors(w http.ResponseWriter, r *http.Request) {
+	p := pageParams(r)
+	out, err := s.store.ListAuthors(r.Context(), p)
+	if err != nil {
+		s.serverError(w, "list authors", err)
+		return
+	}
+	wire := Page[Author]{Items: make([]Author, len(out.Items)), Total: out.Total, Page: out.Page, Limit: out.Limit}
+	for i, a := range out.Items {
+		wire.Items[i] = ToAuthor(a)
+	}
+	writeJSON(w, http.StatusOK, wire)
+}
+
+// SeriesList handles GET /catalog/series.
+func (s *Server) SeriesList(w http.ResponseWriter, r *http.Request) {
+	p := pageParams(r)
+	out, err := s.store.ListSeries(r.Context(), p)
+	if err != nil {
+		s.serverError(w, "list series", err)
+		return
+	}
+	wire := Page[Series]{Items: make([]Series, len(out.Items)), Total: out.Total, Page: out.Page, Limit: out.Limit}
+	for i, x := range out.Items {
+		wire.Items[i] = ToSeries(x)
+	}
+	writeJSON(w, http.StatusOK, wire)
+}
+
+// Genres handles GET /catalog/genres.
+func (s *Server) Genres(w http.ResponseWriter, r *http.Request) {
+	p := pageParams(r)
+	out, err := s.store.ListGenres(r.Context(), p)
+	if err != nil {
+		s.serverError(w, "list genres", err)
+		return
+	}
+	wire := Page[Genre]{Items: make([]Genre, len(out.Items)), Total: out.Total, Page: out.Page, Limit: out.Limit}
+	for i, g := range out.Items {
+		wire.Items[i] = ToGenre(g)
+	}
+	writeJSON(w, http.StatusOK, wire)
+}
+
+// --- helpers ---------------------------------------------------------------
+
+func pageParams(r *http.Request) store.ListParams {
+	return store.ListParams{
+		Page:   atoi(r.URL.Query().Get("page")),
+		Limit:  atoi(r.URL.Query().Get("limit")),
+		Search: r.URL.Query().Get("search"),
+	}
+}
+
+func atoi(s string) int {
+	n, _ := strconv.Atoi(s)
+	return n
+}
+
+func writeJSON(w http.ResponseWriter, code int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+func writeError(w http.ResponseWriter, code int, msg string) {
+	writeJSON(w, code, map[string]any{"error": map[string]string{"message": msg}})
+}
+
+func (s *Server) serverError(w http.ResponseWriter, op string, err error) {
+	s.logger.Error(op, "err", err)
+	writeError(w, http.StatusInternalServerError, "internal error")
+}
+
+// sanitizeFilename strips characters that are problematic in
+// Content-Disposition header values. Replaces them with "_".
+func sanitizeFilename(name string) string {
+	// Allow letters, digits, dot, dash, underscore, space; replace others.
+	var b strings.Builder
+	b.Grow(len(name))
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z',
+			r >= 'A' && r <= 'Z',
+			r >= '0' && r <= '9',
+			r == '.', r == '-', r == '_', r == ' ':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('_')
+		}
+	}
+	return b.String()
+}

@@ -1,0 +1,10 @@
+DROP TABLE IF EXISTS metadata_enrichment_job;
+DROP INDEX IF EXISTS metadata_cache_source_fetched_idx;
+DROP TABLE IF EXISTS metadata_cache;
+DROP INDEX IF EXISTS scan_event_recent_idx;
+DROP TABLE IF EXISTS scan_event;
+DROP TABLE IF EXISTS cover;
+DROP INDEX IF EXISTS ebook_active_idx;
+DROP INDEX IF EXISTS ebook_path_idx;
+DROP TABLE IF EXISTS ebook;
+DROP TABLE IF EXISTS library_path;

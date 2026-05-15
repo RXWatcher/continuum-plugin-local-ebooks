@@ -68,7 +68,7 @@ Three require API keys; the rest work out of the box (several rely on HTML scrap
 
 | Key | Required | Description |
 |---|---|---|
-| `database_url` | yes | DSN for the `ebooksdb` schema. |
+| `database_url` | yes | DSN for the `local_ebooks` schema. |
 | `library_paths` | yes | JSON array of absolute filesystem paths. |
 | `standalone_http_listen` | no | Bind a TCP listener for presigned-URL file delivery. Requires `stream_signing_secret`. |
 | `stream_signing_secret` | conditional | 32-byte base64 HMAC, shared with the portal. Required when `standalone_http_listen` is set. |
@@ -84,15 +84,15 @@ Three require API keys; the rest work out of the box (several rely on HTML scrap
 
 ## Dependencies
 
-- Postgres role + `ebooksdb` schema.
+- Postgres role + `local_ebooks` schema.
 - Mounted filesystem with ebook files.
 - Outbound HTTP access to enabled metadata sources.
 
 ## Install
 
 ```sql
-CREATE ROLE plugin_ebooksdb LOGIN PASSWORD '<chosen>';
-CREATE SCHEMA ebooksdb AUTHORIZATION plugin_ebooksdb;
+CREATE ROLE plugin_local_ebooks LOGIN PASSWORD '<chosen>';
+CREATE SCHEMA local_ebooks AUTHORIZATION plugin_local_ebooks;
 ```
 
 Configure `database_url` and `library_paths` in the plugin admin UI. See [`docs/operations.md`](docs/operations.md) for the standalone-port + signed-URL setup.
@@ -106,4 +106,4 @@ make test
 
 ## Status
 
-v0.1.0 on branch `feat/scaffold`. Beta — many of the scraping sources are best-effort.
+v0.1.0. Functional local-library source; scraping metadata sources remain best-effort.

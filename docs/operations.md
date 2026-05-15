@@ -7,15 +7,15 @@ within a shared Continuum database. Create the role and schema before
 installing the plugin:
 
 ```sql
-CREATE ROLE plugin_ebooksdb LOGIN PASSWORD '<set-something-strong>';
-CREATE SCHEMA ebooksdb AUTHORIZATION plugin_ebooksdb;
+CREATE ROLE plugin_local_ebooks LOGIN PASSWORD '<set-something-strong>';
+CREATE SCHEMA local_ebooks AUTHORIZATION plugin_local_ebooks;
 ```
 
-The plugin's DSN must set `search_path=ebooksdb` so its migrations
+The plugin's DSN must set `search_path=local_ebooks` so its migrations
 target that schema. Example DSN:
 
 ```
-postgres://plugin_ebooksdb:<pwd>@db.internal:5432/continuum?search_path=ebooksdb&sslmode=disable
+postgres://plugin_local_ebooks:<pwd>@db.internal:5432/continuum?search_path=local_ebooks&sslmode=disable
 ```
 
 The migrations are idempotent — running them again against an already-
@@ -153,7 +153,7 @@ Check, in order:
 
 ### `database_url` was rejected at Configure
 
-The DSN must include `search_path=ebooksdb` and the role must own the
+The DSN must include `search_path=local_ebooks` and the role must own the
 schema. Migrations also require `CREATE TABLE` on that schema; if you
 restricted the role, grant it back temporarily for the first run.
 
@@ -169,5 +169,5 @@ The metadata cache and enrichment queue **are not** recoverable; a fresh
 schema after DR will re-fetch from external sources subject to rate
 limits, which can take hours for a large library.
 
-A periodic `pg_dump --schema=ebooksdb` is sufficient if you want to
+A periodic `pg_dump --schema=local_ebooks` is sufficient if you want to
 avoid the rescan + re-enrichment cost after a DR event.

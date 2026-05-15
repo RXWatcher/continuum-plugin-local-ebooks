@@ -11,7 +11,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/ContinuumApp/continuum-plugin-ebooksdb/internal/metadata"
+	"github.com/ContinuumApp/continuum-plugin-local-ebooks/internal/metadata"
 )
 
 // SoftLimit on response body size to cap surprise payloads.
@@ -22,10 +22,10 @@ const DefaultTimeout = 10 * time.Second
 
 // Source is the uniform interface every per-upstream adapter implements.
 type Source interface {
-	ID() string                                                                         // stable lower-case slug
-	Enabled(cfg map[string]bool) bool                                                   // checks ID against enabled set
-	Search(ctx context.Context, query, region string) ([]metadata.Candidate, error)    // returns 0+ candidates
-	Get(ctx context.Context, externalID, region string) (*metadata.Candidate, error)   // nil + nil if not found
+	ID() string                                                                      // stable lower-case slug
+	Enabled(cfg map[string]bool) bool                                                // checks ID against enabled set
+	Search(ctx context.Context, query, region string) ([]metadata.Candidate, error)  // returns 0+ candidates
+	Get(ctx context.Context, externalID, region string) (*metadata.Candidate, error) // nil + nil if not found
 }
 
 // ErrNotFound is the canonical signal a Get found nothing (cached as not_found).

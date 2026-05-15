@@ -30,8 +30,12 @@ func Parse(path string) (Parsed, error) {
 // Returns empty if the rightmost "." is inside a path component before a "/".
 func extOf(path string) string {
 	for i := len(path) - 1; i >= 0; i-- {
-		if path[i] == '.' { return path[i:] }
-		if path[i] == '/' { return "" }
+		if path[i] == '.' {
+			return path[i:]
+		}
+		if path[i] == '/' {
+			return ""
+		}
 	}
 	return ""
 }

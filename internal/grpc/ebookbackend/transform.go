@@ -2,8 +2,9 @@ package ebookbackend
 
 import (
 	"strings"
+	"time"
 
-	"github.com/ContinuumApp/continuum-plugin-ebooksdb/internal/store"
+	"github.com/ContinuumApp/continuum-plugin-local-ebooks/internal/store"
 )
 
 // ToBook converts a store.Ebook row into the wire summary shape. The cover URL
@@ -16,6 +17,9 @@ func ToBook(e store.Ebook) Book {
 	}
 	return Book{
 		ID:          e.ID,
+		LibraryID:   e.LibraryID,
+		LibraryName: e.LibraryName,
+		MediaType:   e.MediaType,
 		Title:       e.Title,
 		Authors:     e.Authors,
 		Series:      e.Series,
@@ -56,6 +60,26 @@ func ToBookDetail(d store.EbookDetail) BookDetail {
 func ToAuthor(a store.Author) Author { return Author{Name: a.Name, Count: a.Count} }
 func ToSeries(s store.Series) Series { return Series{Name: s.Name, Count: s.Count} }
 func ToGenre(g store.Genre) Genre    { return Genre{Name: g.Name, Count: g.Count} }
+
+func ToLibrary(l store.LibraryPath) Library {
+	out := Library{
+		ID:        l.ID,
+		Name:      l.Name,
+		Path:      l.Path,
+		MediaType: l.MediaType,
+		Enabled:   l.Enabled,
+	}
+	if l.Name == "" {
+		out.Name = l.Path
+	}
+	if out.MediaType == "" {
+		out.MediaType = "book"
+	}
+	if l.LastScannedAt != nil {
+		out.LastScannedAt = l.LastScannedAt.UTC().Format(time.RFC3339)
+	}
+	return out
+}
 
 // FormatToMime maps an ebook format to its IANA media type.
 func FormatToMime(format string) string {

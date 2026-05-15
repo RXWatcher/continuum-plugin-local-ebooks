@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ContinuumApp/continuum-plugin-ebooksdb/internal/ebookparse"
+	"github.com/ContinuumApp/continuum-plugin-local-ebooks/internal/ebookparse"
 )
 
 type fakeStore struct {

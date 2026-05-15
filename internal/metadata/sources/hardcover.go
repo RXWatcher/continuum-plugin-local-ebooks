@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"unicode"
 
-	"github.com/ContinuumApp/continuum-plugin-ebooksdb/internal/metadata"
+	"github.com/ContinuumApp/continuum-plugin-local-ebooks/internal/metadata"
 )
 
 const hardcoverID = "hardcover"
@@ -168,15 +168,15 @@ type hardcoverSearchResponse struct {
 }
 
 type hardcoverBook struct {
-	ID           int                       `json:"id"`
-	Title        string                    `json:"title"`
-	Description  string                    `json:"description"`
-	ReleaseDate  string                    `json:"release_date"`
-	Pages        int                       `json:"pages"`
-	Contributions []hardcoverContribution  `json:"contributions"`
-	Editions     []hardcoverEdition        `json:"editions"`
-	Image        *hardcoverImage           `json:"image"`
-	Slug         string                    `json:"slug"`
+	ID            int                     `json:"id"`
+	Title         string                  `json:"title"`
+	Description   string                  `json:"description"`
+	ReleaseDate   string                  `json:"release_date"`
+	Pages         int                     `json:"pages"`
+	Contributions []hardcoverContribution `json:"contributions"`
+	Editions      []hardcoverEdition      `json:"editions"`
+	Image         *hardcoverImage         `json:"image"`
+	Slug          string                  `json:"slug"`
 }
 
 type hardcoverContribution struct {

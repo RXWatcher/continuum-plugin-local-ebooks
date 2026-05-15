@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/ContinuumApp/continuum-plugin-ebooksdb/internal/metadata"
+	"github.com/ContinuumApp/continuum-plugin-local-ebooks/internal/metadata"
 )
 
 const googleBooksID = "googlebooks"
@@ -126,15 +126,15 @@ type gbVolume struct {
 }
 
 type gbVolumeInfo struct {
-	Title               string               `json:"title"`
-	Authors             []string             `json:"authors"`
-	Publisher           string               `json:"publisher"`
-	PublishedDate       string               `json:"publishedDate"`
-	Description         string               `json:"description"`
-	PageCount           int                  `json:"pageCount"`
-	Categories          []string             `json:"categories"`
-	Language            string               `json:"language"`
-	ImageLinks          *gbImageLinks        `json:"imageLinks"`
+	Title               string                 `json:"title"`
+	Authors             []string               `json:"authors"`
+	Publisher           string                 `json:"publisher"`
+	PublishedDate       string                 `json:"publishedDate"`
+	Description         string                 `json:"description"`
+	PageCount           int                    `json:"pageCount"`
+	Categories          []string               `json:"categories"`
+	Language            string                 `json:"language"`
+	ImageLinks          *gbImageLinks          `json:"imageLinks"`
 	IndustryIdentifiers []gbIndustryIdentifier `json:"industryIdentifiers"`
 }
 

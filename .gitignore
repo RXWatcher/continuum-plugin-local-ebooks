@@ -1,4 +1,6 @@
 *.test
 *.out
+/continuum-plugin-local-ebooks
 .idea/
 .vscode/
+.claude/

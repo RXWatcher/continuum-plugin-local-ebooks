@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/ContinuumApp/continuum-plugin-ebooksdb/internal/metadata"
+	"github.com/ContinuumApp/continuum-plugin-local-ebooks/internal/metadata"
 )
 
 const openLibraryID = "openlibrary"
@@ -125,8 +125,12 @@ type openLibraryEdition struct {
 	Covers      []int                  `json:"covers"`
 }
 
-type openLibraryAuthorRef struct{ Key string `json:"key"` }
-type openLibraryLangRef struct{ Key string `json:"key"` }
+type openLibraryAuthorRef struct {
+	Key string `json:"key"`
+}
+type openLibraryLangRef struct {
+	Key string `json:"key"`
+}
 
 type openLibrarySearchResp struct {
 	Docs []openLibrarySearchDoc `json:"docs"`

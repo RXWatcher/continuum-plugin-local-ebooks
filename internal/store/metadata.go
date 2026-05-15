@@ -3,8 +3,17 @@ package store
 import (
 	"context"
 
-	"github.com/ContinuumApp/continuum-plugin-ebooksdb/internal/metadata"
+	"github.com/ContinuumApp/continuum-plugin-local-ebooks/internal/metadata"
 )
+
+// MetadataQueueStats summarizes enrichment work for admin diagnostics.
+type MetadataQueueStats struct {
+	Pending   int `json:"pending"`
+	Completed int `json:"completed"`
+	Failed    int `json:"failed"`
+	DueNow    int `json:"due_now"`
+	Total     int `json:"total"`
+}
 
 // LoadEbookRow reads the enrichment-relevant subset of an ebook row.
 func (s *Store) LoadEbookRow(ctx context.Context, id string) (metadata.EbookRow, error) {
@@ -45,4 +54,18 @@ func (s *Store) BulkEnqueueBackfill(ctx context.Context) (int64, error) {
 		return 0, err
 	}
 	return tag.RowsAffected(), nil
+}
+
+// MetadataQueueStats returns status counters for metadata enrichment jobs.
+func (s *Store) MetadataQueueStats(ctx context.Context) (MetadataQueueStats, error) {
+	var stats MetadataQueueStats
+	err := s.pool.QueryRow(ctx, `
+		SELECT count(*) FILTER (WHERE status = 'pending')::int,
+		       count(*) FILTER (WHERE status = 'completed')::int,
+		       count(*) FILTER (WHERE status = 'failed')::int,
+		       count(*) FILTER (WHERE status = 'pending' AND run_after <= now())::int,
+		       count(*)::int
+		  FROM metadata_enrichment_job
+	`).Scan(&stats.Pending, &stats.Completed, &stats.Failed, &stats.DueNow, &stats.Total)
+	return stats, err
 }

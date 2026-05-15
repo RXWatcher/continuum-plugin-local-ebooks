@@ -1,13 +1,16 @@
-// Command continuum-plugin-ebooksdb is the plugin entrypoint.
+// Command continuum-plugin-local-ebooks is the plugin entrypoint.
 package main
 
 import (
 	"context"
+	"crypto/sha256"
 	_ "embed"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
+	goruntime "runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -15,30 +18,31 @@ import (
 	"github.com/hashicorp/go-hclog"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	pluginv1 "github.com/ContinuumApp/continuum-plugin-sdk/pkg/pluginproto/continuum/plugin/v1"
 	publicmanifest "github.com/ContinuumApp/continuum-plugin-sdk/pkg/pluginsdk/manifest"
 	sdkruntime "github.com/ContinuumApp/continuum-plugin-sdk/pkg/pluginsdk/runtime"
 
-	"github.com/ContinuumApp/continuum-plugin-ebooksdb/internal/grpc/ebookbackend"
-	"github.com/ContinuumApp/continuum-plugin-ebooksdb/internal/grpc/metadataprovider"
-	"github.com/ContinuumApp/continuum-plugin-ebooksdb/internal/httproutes"
-	"github.com/ContinuumApp/continuum-plugin-ebooksdb/internal/metadata"
-	"github.com/ContinuumApp/continuum-plugin-ebooksdb/internal/metadata/sources"
-	"github.com/ContinuumApp/continuum-plugin-ebooksdb/internal/migrate"
-	pluginrt "github.com/ContinuumApp/continuum-plugin-ebooksdb/internal/runtime"
-	"github.com/ContinuumApp/continuum-plugin-ebooksdb/internal/scanner"
-	"github.com/ContinuumApp/continuum-plugin-ebooksdb/internal/scheduler"
-	"github.com/ContinuumApp/continuum-plugin-ebooksdb/internal/server"
-	"github.com/ContinuumApp/continuum-plugin-ebooksdb/internal/store"
+	"github.com/ContinuumApp/continuum-plugin-local-ebooks/internal/grpc/ebookbackend"
+	"github.com/ContinuumApp/continuum-plugin-local-ebooks/internal/grpc/metadataprovider"
+	"github.com/ContinuumApp/continuum-plugin-local-ebooks/internal/httproutes"
+	"github.com/ContinuumApp/continuum-plugin-local-ebooks/internal/metadata"
+	"github.com/ContinuumApp/continuum-plugin-local-ebooks/internal/metadata/sources"
+	"github.com/ContinuumApp/continuum-plugin-local-ebooks/internal/migrate"
+	pluginrt "github.com/ContinuumApp/continuum-plugin-local-ebooks/internal/runtime"
+	"github.com/ContinuumApp/continuum-plugin-local-ebooks/internal/scanner"
+	"github.com/ContinuumApp/continuum-plugin-local-ebooks/internal/scheduler"
+	"github.com/ContinuumApp/continuum-plugin-local-ebooks/internal/server"
+	"github.com/ContinuumApp/continuum-plugin-local-ebooks/internal/store"
 )
 
 //go:embed manifest.json
 var manifestRaw []byte
 
 func main() {
-	logger := hclog.New(&hclog.LoggerOptions{Name: "continuum-plugin-ebooksdb"})
+	logger := hclog.New(&hclog.LoggerOptions{Name: "continuum-plugin-local-ebooks"})
 	slogger := slog.Default()
 
-	manifest, err := publicmanifest.Load(manifestRaw)
+	manifest, err := loadManifest()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "load manifest: %v\n", err)
 		os.Exit(1)
@@ -137,13 +141,17 @@ func main() {
 		}
 		st := store.New(p)
 
-		for _, path := range cfg.LibraryPaths {
-			if _, err := st.UpsertLibraryPath(ctx, path); err != nil {
-				logger.Warn("upsert library_path", "path", path, "err", err)
+		for _, lib := range cfg.Libraries {
+			if _, err := st.UpsertLibraryPathConfig(ctx, store.LibraryPathConfig{
+				Path:      lib.Path,
+				Name:      lib.Name,
+				MediaType: lib.MediaType,
+			}); err != nil {
+				logger.Warn("upsert library_path", "path", lib.Path, "err", err)
 			}
 		}
 
-		ua := "continuum-ebooksdb/" + manifest.GetVersion()
+		ua := "continuum-local-ebooks/" + manifest.GetVersion()
 		reg := sources.NewRegistry()
 		reg.Register(sources.NewOpenLibrary(ua))
 		reg.Register(sources.NewGoogleBooks(cfg.GoogleBooksAPIKey, ua))
@@ -178,7 +186,16 @@ func main() {
 		mux := http.NewServeMux()
 		catalogSrv := ebookbackend.NewServer(st, slogger)
 		server.MountCatalog(mux, catalogSrv)
-		server.MountAdmin(mux, st)
+		server.MountAdminWithDeps(mux, server.AdminDeps{
+			Store:  st,
+			ScanFn: runScan,
+			ConfigSnapshot: func() pluginrt.Config {
+				if c := cfgPtr.Load(); c != nil {
+					return *c
+				}
+				return pluginrt.Config{}
+			},
+		})
 		httpSrv.SetHandler(mux)
 
 		storePtr.Store(st)
@@ -225,4 +242,27 @@ func main() {
 			MetadataProvider: metaSrv,
 		},
 	})
+}
+
+func loadManifest() (*pluginv1.PluginManifest, error) {
+	manifest, err := publicmanifest.Load(manifestRaw)
+	if err != nil {
+		return nil, fmt.Errorf("load embedded manifest: %w", err)
+	}
+	executablePath, err := os.Executable()
+	if err != nil {
+		return nil, fmt.Errorf("resolve executable path: %w", err)
+	}
+	binaryData, err := os.ReadFile(executablePath)
+	if err != nil {
+		return nil, fmt.Errorf("read executable %q: %w", executablePath, err)
+	}
+	checksum := sha256.Sum256(binaryData)
+	manifest.Checksum = hex.EncodeToString(checksum[:])
+	if len(manifest.GetSupportedPlatforms()) == 0 {
+		manifest.SupportedPlatforms = []*pluginv1.SupportedPlatform{
+			{Os: goruntime.GOOS, Arch: goruntime.GOARCH},
+		}
+	}
+	return manifest, nil
 }

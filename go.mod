@@ -1,4 +1,4 @@
-module github.com/ContinuumApp/continuum-plugin-ebooksdb
+module github.com/ContinuumApp/continuum-plugin-local-ebooks
 
 go 1.26.0
 

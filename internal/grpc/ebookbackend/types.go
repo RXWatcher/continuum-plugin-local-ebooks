@@ -7,6 +7,9 @@ package ebookbackend
 // Book is the summary entry returned by /catalog list endpoints.
 type Book struct {
 	ID          string   `json:"id"`
+	LibraryID   int64    `json:"library_id,omitempty"`
+	LibraryName string   `json:"library_name,omitempty"`
+	MediaType   string   `json:"media_type,omitempty"`
 	Title       string   `json:"title"`
 	Authors     []string `json:"authors,omitempty"`
 	Series      string   `json:"series,omitempty"`
@@ -16,6 +19,16 @@ type Book struct {
 	CoverURL    string   `json:"cover_url,omitempty"`
 	HasCover    bool     `json:"has_cover"`
 	Formats     []string `json:"formats"`
+}
+
+// Library is one configured catalog root exposed to portal clients.
+type Library struct {
+	ID            int64  `json:"id"`
+	Name          string `json:"name"`
+	Path          string `json:"path,omitempty"`
+	MediaType     string `json:"media_type"`
+	Enabled       bool   `json:"enabled"`
+	LastScannedAt string `json:"last_scanned_at,omitempty"`
 }
 
 // BookDetail extends Book with rich descriptive metadata + downloadable files.

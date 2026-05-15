@@ -16,6 +16,7 @@ import (
 type Config struct {
 	DatabaseURL          string
 	LibraryPaths         []string
+	Libraries            []LibraryConfig
 	StandaloneHTTPListen string
 	StreamSigningSecret  string
 
@@ -29,6 +30,16 @@ type Config struct {
 	GoogleBooksAPIKey string
 	ISBNdbAPIKey      string
 	HardcoverAPIKey   string
+}
+
+// LibraryConfig is one configured catalog root. The legacy library_paths
+// setting may still be a plain string array; object entries allow the portal
+// to present distinct Books/Comics/etc. libraries without changing the scanner
+// contract.
+type LibraryConfig struct {
+	Path      string
+	Name      string
+	MediaType string
 }
 
 // Server implements the plugin's Runtime service.
@@ -64,6 +75,7 @@ func (s *Server) Configure(_ context.Context, req *pluginv1.ConfigureRequest) (*
 			cfg.DatabaseURL = stringFrom(val)
 		case "library_paths":
 			cfg.LibraryPaths = stringSliceFrom(val)
+			cfg.Libraries = libraryConfigsFrom(val)
 		case "standalone_http_listen":
 			cfg.StandaloneHTTPListen = stringFrom(val)
 		case "stream_signing_secret":
@@ -93,6 +105,11 @@ func (s *Server) Configure(_ context.Context, req *pluginv1.ConfigureRequest) (*
 	}
 	if len(cfg.LibraryPaths) == 0 {
 		return nil, errors.New("library_paths is required (non-empty array)")
+	}
+	if len(cfg.Libraries) == 0 {
+		for _, path := range cfg.LibraryPaths {
+			cfg.Libraries = append(cfg.Libraries, LibraryConfig{Path: path})
+		}
 	}
 	// Apply defaults for metadata fields.
 	if cfg.MetadataDefaultRegion == "" {
@@ -159,6 +176,33 @@ func stringSliceFrom(v any) []string {
 	for _, item := range arr {
 		if s, ok := item.(string); ok && s != "" {
 			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func libraryConfigsFrom(v any) []LibraryConfig {
+	arr, ok := v.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]LibraryConfig, 0, len(arr))
+	for _, item := range arr {
+		switch x := item.(type) {
+		case string:
+			if x != "" {
+				out = append(out, LibraryConfig{Path: x})
+			}
+		case map[string]any:
+			path := stringFrom(x["path"])
+			if path == "" {
+				continue
+			}
+			out = append(out, LibraryConfig{
+				Path:      path,
+				Name:      stringFrom(x["name"]),
+				MediaType: stringFrom(x["media_type"]),
+			})
 		}
 	}
 	return out

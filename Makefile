@@ -1,7 +1,12 @@
-.PHONY: build test fmt
+BINARY := continuum-plugin-local-ebooks
+GO ?= go
+
+.PHONY: build test fmt clean
 build:
-	go build ./...
+	$(GO) build -o $(BINARY) ./cmd/continuum-plugin-local-ebooks
 test:
-	go test ./...
+	$(GO) test ./...
 fmt:
-	go fmt ./...
+	$(GO) fmt ./...
+clean:
+	rm -f $(BINARY)

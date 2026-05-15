@@ -35,11 +35,11 @@ func TestIsSupported(t *testing.T) {
 
 func TestExtOf(t *testing.T) {
 	cases := map[string]string{
-		"book.epub":          ".epub",
-		"/path/to/book.pdf":  ".pdf",
-		"book":               "",
-		"book.tar.gz":        ".gz",
-		"/path/no.dot/file":  "",
+		"book.epub":         ".epub",
+		"/path/to/book.pdf": ".pdf",
+		"book":              "",
+		"book.tar.gz":       ".gz",
+		"/path/no.dot/file": "",
 	}
 	for path, want := range cases {
 		if got := extOf(path); got != want {

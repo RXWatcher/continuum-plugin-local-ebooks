@@ -37,7 +37,9 @@ func (q *Queue) Enqueue(ctx context.Context, ebookID string) error {
 
 func (q *Queue) ClaimNext(ctx context.Context) (Job, error) {
 	tx, err := q.pool.Begin(ctx)
-	if err != nil { return Job{}, err }
+	if err != nil {
+		return Job{}, err
+	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 	var j Job
 	err = tx.QueryRow(ctx, `
@@ -50,13 +52,17 @@ func (q *Queue) ClaimNext(ctx context.Context) (Job, error) {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Job{}, ErrQueueEmpty
 	}
-	if err != nil { return Job{}, err }
+	if err != nil {
+		return Job{}, err
+	}
 	if _, err := tx.Exec(ctx,
 		`UPDATE metadata_enrichment_job SET attempts = attempts + 1 WHERE ebook_id = $1`,
 		j.EbookID); err != nil {
 		return Job{}, err
 	}
-	if err := tx.Commit(ctx); err != nil { return Job{}, err }
+	if err := tx.Commit(ctx); err != nil {
+		return Job{}, err
+	}
 	j.Attempts++
 	return j, nil
 }

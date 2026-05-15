@@ -9,7 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/ContinuumApp/continuum-plugin-ebooksdb/internal/ebookparse"
+	"github.com/ContinuumApp/continuum-plugin-local-ebooks/internal/ebookparse"
 )
 
 // Store wraps a pgxpool. Construct one per process; safe for concurrent use.

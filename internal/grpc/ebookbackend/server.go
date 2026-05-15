@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ContinuumApp/continuum-plugin-ebooksdb/internal/store"
+	"github.com/ContinuumApp/continuum-plugin-local-ebooks/internal/store"
 )
 
 // Store is the minimal store-layer interface the server depends on. Defined
@@ -20,6 +20,7 @@ import (
 // pulling in pgx.
 type Store interface {
 	ListEbooks(ctx context.Context, p store.ListParams) (store.Paged[store.Ebook], error)
+	ListLibraryPaths(ctx context.Context) ([]store.LibraryPath, error)
 	GetEbookByID(ctx context.Context, id string) (store.EbookDetail, error)
 	GetCover(ctx context.Context, id string) ([]byte, string, error)
 	GetEbookPath(ctx context.Context, id string) (string, string, error)
@@ -44,16 +45,34 @@ func NewServer(s Store, logger *slog.Logger) *Server {
 	return &Server{store: s, logger: logger}
 }
 
+// Libraries handles GET /catalog/libraries.
+func (s *Server) Libraries(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.store.ListLibraryPaths(r.Context())
+	if err != nil {
+		s.serverError(w, "list libraries", err)
+		return
+	}
+	items := make([]Library, 0, len(rows))
+	for _, row := range rows {
+		if !row.Enabled {
+			continue
+		}
+		items = append(items, ToLibrary(row))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
 // --- list ------------------------------------------------------------------
 
 // List handles GET /catalog. Accepts library, page, limit, search query
 // params.
 func (s *Server) List(w http.ResponseWriter, r *http.Request) {
 	p := store.ListParams{
-		Library: r.URL.Query().Get("library"),
-		Search:  r.URL.Query().Get("search"),
-		Page:    atoi(r.URL.Query().Get("page")),
-		Limit:   atoi(r.URL.Query().Get("limit")),
+		Library:   r.URL.Query().Get("library"),
+		LibraryID: int64(atoi(r.URL.Query().Get("library_id"))),
+		Search:    r.URL.Query().Get("search"),
+		Page:      atoi(r.URL.Query().Get("page")),
+		Limit:     atoi(r.URL.Query().Get("limit")),
 	}
 	out, err := s.store.ListEbooks(r.Context(), p)
 	if err != nil {
@@ -218,9 +237,11 @@ func (s *Server) Genres(w http.ResponseWriter, r *http.Request) {
 
 func pageParams(r *http.Request) store.ListParams {
 	return store.ListParams{
-		Page:   atoi(r.URL.Query().Get("page")),
-		Limit:  atoi(r.URL.Query().Get("limit")),
-		Search: r.URL.Query().Get("search"),
+		Page:      atoi(r.URL.Query().Get("page")),
+		Limit:     atoi(r.URL.Query().Get("limit")),
+		Search:    r.URL.Query().Get("search"),
+		LibraryID: int64(atoi(r.URL.Query().Get("library_id"))),
+		Library:   r.URL.Query().Get("library"),
 	}
 }
 

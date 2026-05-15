@@ -12,9 +12,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ContinuumApp/continuum-plugin-ebooksdb/internal/grpc/ebookbackend"
-	"github.com/ContinuumApp/continuum-plugin-ebooksdb/internal/server"
-	"github.com/ContinuumApp/continuum-plugin-ebooksdb/internal/store"
+	"github.com/ContinuumApp/continuum-plugin-local-ebooks/internal/grpc/ebookbackend"
+	"github.com/ContinuumApp/continuum-plugin-local-ebooks/internal/server"
+	"github.com/ContinuumApp/continuum-plugin-local-ebooks/internal/store"
 )
 
 // --- transform unit tests --------------------------------------------------
@@ -126,10 +126,15 @@ type fakeStore struct {
 	authors store.Paged[store.Author]
 	series  store.Paged[store.Series]
 	genres  store.Paged[store.Genre]
+
+	libraries []store.LibraryPath
 }
 
 func (f *fakeStore) ListEbooks(_ context.Context, _ store.ListParams) (store.Paged[store.Ebook], error) {
 	return f.list, f.listErr
+}
+func (f *fakeStore) ListLibraryPaths(_ context.Context) ([]store.LibraryPath, error) {
+	return f.libraries, nil
 }
 func (f *fakeStore) GetEbookByID(_ context.Context, _ string) (store.EbookDetail, error) {
 	return f.detail, f.detailErr

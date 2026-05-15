@@ -19,9 +19,10 @@ type Paged[T any] struct {
 
 // ListParams controls list/browse pagination + search.
 type ListParams struct {
-	Page   int
-	Limit  int
-	Search string
+	Page      int
+	Limit     int
+	Search    string
+	LibraryID int64
 	// Library, when non-empty, restricts results to the library path with the
 	// given filesystem path. Empty matches all.
 	Library string
@@ -30,6 +31,9 @@ type ListParams struct {
 // Ebook is a summary row for catalog listing.
 type Ebook struct {
 	ID          string   `json:"id"`
+	LibraryID   int64    `json:"library_id,omitempty"`
+	LibraryName string   `json:"library_name,omitempty"`
+	MediaType   string   `json:"media_type,omitempty"`
 	Title       string   `json:"title"`
 	Authors     []string `json:"authors,omitempty"`
 	Series      string   `json:"series,omitempty"`
@@ -67,6 +71,17 @@ type Series struct {
 type Genre struct {
 	Name  string `json:"name"`
 	Count int    `json:"count"`
+}
+
+// CatalogStats summarizes the local catalog for admin diagnostics.
+type CatalogStats struct {
+	Total       int            `json:"total"`
+	Active      int            `json:"active"`
+	Deleted     int            `json:"deleted"`
+	WithCovers  int            `json:"with_covers"`
+	ByFormat    map[string]int `json:"by_format"`
+	ByMediaType map[string]int `json:"by_media_type"`
+	ByLibrary   map[string]int `json:"by_library"`
 }
 
 // ErrNotFound is returned when a requested row does not exist.
@@ -126,6 +141,10 @@ func (s *Store) ListEbooks(ctx context.Context, p ListParams) (Paged[Ebook], err
 		args = append(args, p.Library)
 		where = append(where, fmt.Sprintf("lp.path = $%d", len(args)))
 	}
+	if p.LibraryID > 0 {
+		args = append(args, p.LibraryID)
+		where = append(where, fmt.Sprintf("lp.id = $%d", len(args)))
+	}
 
 	whereClause := strings.Join(where, " AND ")
 
@@ -139,7 +158,8 @@ func (s *Store) ListEbooks(ctx context.Context, p ListParams) (Paged[Ebook], err
 	// Page query.
 	args = append(args, limit, offset)
 	rowsSQL := `
-		SELECT e.id, e.title, e.author, e.series, e.series_pos, e.year, e.language, e.format,
+		SELECT e.id, lp.id, lp.name, lp.media_type,
+		       e.title, e.author, e.series, e.series_pos, e.year, e.language, e.format,
 		       EXISTS(SELECT 1 FROM cover c WHERE c.ebook_id = e.id) AS has_cover
 		FROM ebook e
 		JOIN library_path lp ON lp.id = e.library_path_id
@@ -162,7 +182,10 @@ func (s *Store) ListEbooks(ctx context.Context, p ListParams) (Paged[Ebook], err
 			format         string
 			hasCover       bool
 		)
-		if err := rows.Scan(&b.ID, &b.Title, &authorCSV, &series, &pos, &year, &language, &format, &hasCover); err != nil {
+		if err := rows.Scan(
+			&b.ID, &b.LibraryID, &b.LibraryName, &b.MediaType,
+			&b.Title, &authorCSV, &series, &pos, &year, &language, &format, &hasCover,
+		); err != nil {
 			return Paged[Ebook]{}, fmt.Errorf("scan: %w", err)
 		}
 		b.Authors = splitCSV(authorCSV)
@@ -190,13 +213,16 @@ func (s *Store) GetEbookByID(ctx context.Context, id string) (EbookDetail, error
 		hasCover  bool
 	)
 	err := s.pool.QueryRow(ctx, `
-		SELECT e.id, e.title, e.author, e.series, e.series_pos, e.year, e.language, e.format,
+		SELECT e.id, lp.id, lp.name, lp.media_type,
+		       e.title, e.author, e.series, e.series_pos, e.year, e.language, e.format,
 		       e.description, e.isbn, e.asin, e.publisher, e.genre, e.page_count, e.file_size, e.path,
 		       EXISTS(SELECT 1 FROM cover c WHERE c.ebook_id = e.id) AS has_cover
 		FROM ebook e
+		JOIN library_path lp ON lp.id = e.library_path_id
 		WHERE e.id = $1 AND e.deleted = FALSE
 	`, id).Scan(
-		&d.ID, &d.Title, &authorCSV, &d.Series, &d.SeriesIndex, &d.Year, &d.Language, &d.Format,
+		&d.ID, &d.LibraryID, &d.LibraryName, &d.MediaType,
+		&d.Title, &authorCSV, &d.Series, &d.SeriesIndex, &d.Year, &d.Language, &d.Format,
 		&d.Description, &d.ISBN, &d.ASIN, &d.Publisher, &genreCSV, &d.PageCount, &d.FileSize, &d.Path,
 		&hasCover,
 	)
@@ -251,21 +277,107 @@ func (s *Store) GetEbookPath(ctx context.Context, id string) (string, string, er
 	return path, format, nil
 }
 
+// CatalogStats returns small aggregate counters for admin status screens.
+func (s *Store) CatalogStats(ctx context.Context) (CatalogStats, error) {
+	stats := CatalogStats{
+		ByFormat:    map[string]int{},
+		ByMediaType: map[string]int{},
+		ByLibrary:   map[string]int{},
+	}
+	if err := s.pool.QueryRow(ctx, `
+		SELECT count(*)::int,
+		       count(*) FILTER (WHERE deleted = FALSE)::int,
+		       count(*) FILTER (WHERE deleted = TRUE)::int,
+		       count(c.ebook_id)::int
+		  FROM ebook e
+		  LEFT JOIN cover c ON c.ebook_id = e.id
+	`).Scan(&stats.Total, &stats.Active, &stats.Deleted, &stats.WithCovers); err != nil {
+		return stats, err
+	}
+	formatRows, err := s.pool.Query(ctx, `
+		SELECT format, count(*)::int
+		  FROM ebook
+		 WHERE deleted = FALSE
+		 GROUP BY format
+		 ORDER BY format
+	`)
+	if err != nil {
+		return stats, err
+	}
+	defer formatRows.Close()
+	for formatRows.Next() {
+		var key string
+		var count int
+		if err := formatRows.Scan(&key, &count); err != nil {
+			return stats, err
+		}
+		stats.ByFormat[key] = count
+	}
+	if err := formatRows.Err(); err != nil {
+		return stats, err
+	}
+	mediaRows, err := s.pool.Query(ctx, `
+		SELECT lp.media_type, count(*)::int
+		  FROM ebook e
+		  JOIN library_path lp ON lp.id = e.library_path_id
+		 WHERE e.deleted = FALSE
+		 GROUP BY lp.media_type
+		 ORDER BY lp.media_type
+	`)
+	if err != nil {
+		return stats, err
+	}
+	defer mediaRows.Close()
+	for mediaRows.Next() {
+		var key string
+		var count int
+		if err := mediaRows.Scan(&key, &count); err != nil {
+			return stats, err
+		}
+		stats.ByMediaType[key] = count
+	}
+	if err := mediaRows.Err(); err != nil {
+		return stats, err
+	}
+	libraryRows, err := s.pool.Query(ctx, `
+		SELECT lp.name, count(e.id)::int
+		  FROM library_path lp
+		  LEFT JOIN ebook e ON e.library_path_id = lp.id AND e.deleted = FALSE
+		 GROUP BY lp.id, lp.name
+		 ORDER BY lp.name
+	`)
+	if err != nil {
+		return stats, err
+	}
+	defer libraryRows.Close()
+	for libraryRows.Next() {
+		var key string
+		var count int
+		if err := libraryRows.Scan(&key, &count); err != nil {
+			return stats, err
+		}
+		stats.ByLibrary[key] = count
+	}
+	return stats, libraryRows.Err()
+}
+
 // splitColumnSQL produces a SELECT that splits a CSV column on , and ;,
 // trims whitespace, and groups by the resulting name producing (name, count).
 // Empty / whitespace-only names are filtered out.
-func splitColumnSQL(column string) string {
+func splitColumnSQL(column string, p ListParams) (string, []any) {
+	args, libraryWhere := libraryAggregateWhere(p)
 	// nested SELECT with unnest, then aggregate.
 	return `
 		SELECT name, count(*)::int AS count FROM (
 		  SELECT trim(t) AS name
-		  FROM ebook e,
+		  FROM ebook e
+		  JOIN library_path lp ON lp.id = e.library_path_id,
 		       LATERAL unnest(string_to_array(replace(e.` + column + `, ';', ','), ',')) AS t
-		  WHERE e.deleted = FALSE AND e.` + column + ` <> ''
+		  WHERE e.deleted = FALSE AND e.` + column + ` <> ''` + libraryWhere + `
 		) sub
 		WHERE name <> ''
 		GROUP BY name
-	`
+	`, args
 }
 
 // ListAuthors enumerates distinct authors (split from the CSV `author` column)
@@ -273,9 +385,9 @@ func splitColumnSQL(column string) string {
 func (s *Store) ListAuthors(ctx context.Context, p ListParams) (Paged[Author], error) {
 	limit := normalizeLimit(p.Limit)
 	page := normalizePage(p.Page)
+	inner, args := splitColumnSQL("author", p)
 	return paginateAggregate[Author](ctx, s,
-		splitColumnSQL("author"),
-		p.Search, page, limit,
+		inner, args, p.Search, page, limit,
 		func(name string, count int) Author { return Author{Name: name, Count: count} },
 	)
 }
@@ -285,11 +397,14 @@ func (s *Store) ListAuthors(ctx context.Context, p ListParams) (Paged[Author], e
 func (s *Store) ListSeries(ctx context.Context, p ListParams) (Paged[Series], error) {
 	limit := normalizeLimit(p.Limit)
 	page := normalizePage(p.Page)
+	args, libraryWhere := libraryAggregateWhere(p)
 	return paginateAggregate[Series](ctx, s,
 		`SELECT e.series AS name, count(*)::int AS count
-		 FROM ebook e WHERE e.deleted = FALSE AND e.series <> ''
+		 FROM ebook e
+		 JOIN library_path lp ON lp.id = e.library_path_id
+		 WHERE e.deleted = FALSE AND e.series <> ''`+libraryWhere+`
 		 GROUP BY e.series`,
-		p.Search, page, limit,
+		args, p.Search, page, limit,
 		func(name string, count int) Series { return Series{Name: name, Count: count} },
 	)
 }
@@ -298,22 +413,36 @@ func (s *Store) ListSeries(ctx context.Context, p ListParams) (Paged[Series], er
 func (s *Store) ListGenres(ctx context.Context, p ListParams) (Paged[Genre], error) {
 	limit := normalizeLimit(p.Limit)
 	page := normalizePage(p.Page)
+	inner, args := splitColumnSQL("genre", p)
 	return paginateAggregate[Genre](ctx, s,
-		splitColumnSQL("genre"),
-		p.Search, page, limit,
+		inner, args, p.Search, page, limit,
 		func(name string, count int) Genre { return Genre{Name: name, Count: count} },
 	)
+}
+
+func libraryAggregateWhere(p ListParams) ([]any, string) {
+	args := []any{}
+	where := ""
+	if p.Library != "" {
+		args = append(args, p.Library)
+		where += fmt.Sprintf(" AND lp.path = $%d", len(args))
+	}
+	if p.LibraryID > 0 {
+		args = append(args, p.LibraryID)
+		where += fmt.Sprintf(" AND lp.id = $%d", len(args))
+	}
+	return args, where
 }
 
 // paginateAggregate wraps an aggregation subquery (yielding columns name,
 // count) with optional name-filter + pagination + total count, projecting
 // each row via mk.
 func paginateAggregate[T any](
-	ctx context.Context, s *Store, innerSQL, search string,
+	ctx context.Context, s *Store, innerSQL string, baseArgs []any, search string,
 	page, limit int, mk func(name string, count int) T,
 ) (Paged[T], error) {
 	offset := (page - 1) * limit
-	args := []any{}
+	args := append([]any{}, baseArgs...)
 	where := ""
 	if search != "" {
 		args = append(args, "%"+search+"%")

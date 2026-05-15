@@ -1,0 +1,3 @@
+ALTER TABLE library_path
+  DROP COLUMN IF EXISTS media_type,
+  DROP COLUMN IF EXISTS name;

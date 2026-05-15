@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ContinuumApp/continuum-plugin-ebooksdb/internal/metadata"
+	"github.com/ContinuumApp/continuum-plugin-local-ebooks/internal/metadata"
 )
 
 const gutenbergID = "gutenberg"
@@ -100,8 +100,8 @@ func (g *Gutenberg) Search(ctx context.Context, query, region string) ([]metadat
 // --- JSON types ---
 
 type gutenbergSearchResponse struct {
-	Count   int              `json:"count"`
-	Results []gutenbergBook  `json:"results"`
+	Count   int             `json:"count"`
+	Results []gutenbergBook `json:"results"`
 }
 
 type gutenbergBook struct {

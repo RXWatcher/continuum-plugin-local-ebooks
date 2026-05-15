@@ -1,4 +1,4 @@
-# Operations — continuum-plugin-ebooksdb
+# Operations — continuum-plugin-local-ebooks
 
 ## 1. Postgres schema setup
 

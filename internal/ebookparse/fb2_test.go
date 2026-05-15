@@ -21,14 +21,24 @@ func TestParseFB2_HappyPath(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sample.fb2")
 	os.WriteFile(path, []byte(fb2), 0o644)
 	p, err := ParseFB2(path)
-	if err != nil { t.Fatal(err) }
-	if p.Format != "fb2" { t.Errorf("format %q", p.Format) }
-	if p.Title != "Project Hail Mary" { t.Errorf("title %q", p.Title) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Format != "fb2" {
+		t.Errorf("format %q", p.Format)
+	}
+	if p.Title != "Project Hail Mary" {
+		t.Errorf("title %q", p.Title)
+	}
 	if len(p.Authors) != 1 || p.Authors[0] != "Andy Weir" {
 		t.Errorf("authors %v", p.Authors)
 	}
-	if p.Language != "en" { t.Errorf("language %q", p.Language) }
-	if p.Description != "A lone astronaut." { t.Errorf("desc %q", p.Description) }
+	if p.Language != "en" {
+		t.Errorf("language %q", p.Language)
+	}
+	if p.Description != "A lone astronaut." {
+		t.Errorf("desc %q", p.Description)
+	}
 	if p.Series != "Hail Mary" || p.SeriesPos != "1" {
 		t.Errorf("series %q %q", p.Series, p.SeriesPos)
 	}
@@ -39,5 +49,7 @@ func TestParseFB2_HappyPath(t *testing.T) {
 
 func TestParseFB2_MissingFile(t *testing.T) {
 	_, err := ParseFB2("/nonexistent.fb2")
-	if err == nil { t.Error("expected error") }
+	if err == nil {
+		t.Error("expected error")
+	}
 }

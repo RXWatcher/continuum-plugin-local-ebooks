@@ -5,10 +5,22 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync/atomic"
 
 	pluginv1 "github.com/ContinuumApp/continuum-plugin-sdk/pkg/pluginproto/continuum/plugin/v1"
 )
+
+// taskID extracts the capability id from a scheduled-task key. The Continuum
+// host sends "plugin:<installationID>:<capabilityID>" (task_registry
+// pluginTaskKey); bare ids may arrive from host integration tests. This
+// plugin's capability ids contain no ':'.
+func taskID(key string) string {
+	if i := strings.LastIndexByte(key, ':'); i >= 0 {
+		return key[i+1:]
+	}
+	return key
+}
 
 // Tasks holds the registered task functions so both the admin trigger and
 // the scheduled-task RPC run the same code path. ScanFn returns the
@@ -32,7 +44,7 @@ func New(t *Tasks) *Server { return &Server{t: t} }
 
 // Run dispatches the named task. Unknown keys return an error.
 func (s *Server) Run(ctx context.Context, req *pluginv1.RunScheduledTaskRequest) (*pluginv1.RunScheduledTaskResponse, error) {
-	switch req.GetTaskKey() {
+	switch taskID(req.GetTaskKey()) {
 	case "library_scan":
 		if s.t == nil || s.t.ScanFn == nil {
 			return &pluginv1.RunScheduledTaskResponse{}, nil

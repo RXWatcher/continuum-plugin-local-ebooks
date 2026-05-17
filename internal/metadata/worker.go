@@ -16,7 +16,23 @@ const (
 	maxClaimFailures = 5
 	// claimBackoff spaces out retries so a persistent error can't hot-loop.
 	claimBackoff = 2 * time.Second
+	// minTextMatchConfidence is the floor for accepting a title+author text
+	// search result. A correct match (title substring + author match) scores
+	// ~45-60; an unrelated result with only loose word overlap scores ~15.
+	minTextMatchConfidence = 40
 )
+
+// rowAsCandidate projects the local ebook row into a Candidate so
+// CalculateConfidence can compare the search result against existing data.
+func rowAsCandidate(r EbookRow) Candidate {
+	c := Candidate{Title: r.Title, ISBN: r.ISBN, ASIN: r.ASIN}
+	for _, a := range strings.Split(r.Author, ",") {
+		if s := strings.TrimSpace(a); s != "" {
+			c.Authors = append(c.Authors, s)
+		}
+	}
+	return c
+}
 
 // ErrNotFound is the sentinel sources return when a lookup yields no record.
 // Defined here (in the metadata package) to avoid an import cycle with the
@@ -90,6 +106,13 @@ func (w *EnrichmentWorker) Drain(ctx context.Context) error {
 		}
 		consecFail = 0
 		if procErr := w.process(ctx, job); procErr != nil {
+			// A ctx cancellation/deadline (shutdown, scheduled-task budget)
+			// is not a job failure: don't burn an attempt or write a sticky
+			// error. The lease keeps the job from being re-claimed until it
+			// expires; the next drain retries it.
+			if errors.Is(procErr, context.Canceled) || errors.Is(procErr, context.DeadlineExceeded) || ctx.Err() != nil {
+				return ctx.Err()
+			}
 			_ = w.Queue.MarkFailed(ctx, job.EbookID, job.Attempts, procErr.Error())
 			w.Logger.Warn("enrichment failed", "ebook_id", job.EbookID,
 				"attempts", job.Attempts, "err", procErr)
@@ -131,7 +154,15 @@ func (w *EnrichmentWorker) process(ctx context.Context, j Job) error {
 		cs, serr := src.Search(ctx, q, w.Region)
 		err = serr
 		if len(cs) > 0 {
-			candidate = &cs[0]
+			// A title+author text search can return a loosely-matching
+			// first result for a *different* book; ApplyMatch would then
+			// overwrite correct local metadata. Gate this fuzzy branch on a
+			// confidence floor (a correct title-substring + author match
+			// scores well above this; an unrelated result well below).
+			orig := rowAsCandidate(row)
+			if CalculateConfidence(q, cs[0], &orig) >= minTextMatchConfidence {
+				candidate = &cs[0]
+			}
 		}
 	}
 	if errors.Is(err, ErrNotFound) {

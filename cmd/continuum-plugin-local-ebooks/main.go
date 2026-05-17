@@ -148,6 +148,9 @@ func main() {
 		if target == nil {
 			return 0, fmt.Errorf("library %d not found", lpID)
 		}
+		// Intentional: a per-library admin scan is an explicit operator
+		// override and runs even if the library is disabled (disabled only
+		// means "not exposed to the portal"). Bulk runScan skips disabled.
 		eventID, err := st.InsertScanEvent(ctx, &lpID)
 		if err != nil {
 			return 0, fmt.Errorf("insert scan_event: %w", err)

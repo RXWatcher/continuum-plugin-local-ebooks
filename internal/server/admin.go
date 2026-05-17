@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -34,32 +33,11 @@ type AdminDeps struct {
 	ConfigSnapshot func() pluginrt.Config
 }
 
-// MountAdmin registers /admin/* routes on mux.
-func MountAdmin(mux *http.ServeMux, st BackfillStore) {
-	MountAdminWithDeps(mux, AdminDeps{Store: nil})
-	mux.HandleFunc("POST /admin/metadata/backfill", func(w http.ResponseWriter, r *http.Request) {
-		n, err := st.BulkEnqueueBackfill(r.Context())
-		if err != nil {
-			http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusInternalServerError)
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]int64{"queued": n})
-	})
-}
-
 // MountAdminWithDeps registers the complete admin surface.
 func MountAdminWithDeps(mux *http.ServeMux, deps AdminDeps) {
 	if deps.Store != nil {
 		mux.HandleFunc("GET /admin/diagnostics", func(w http.ResponseWriter, r *http.Request) {
 			handleDiagnostics(w, r, deps)
-		})
-		mux.HandleFunc("GET /admin/library-paths", func(w http.ResponseWriter, r *http.Request) {
-			paths, err := deps.Store.ListLibraryPaths(r.Context())
-			if err != nil {
-				writeError(w, http.StatusInternalServerError, err)
-				return
-			}
-			writeJSON(w, http.StatusOK, map[string]any{"items": paths})
 		})
 		mux.HandleFunc("GET /admin/scans", func(w http.ResponseWriter, r *http.Request) {
 			limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))

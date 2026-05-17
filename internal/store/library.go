@@ -13,12 +13,29 @@ type LibraryPath struct {
 	MediaType     string
 	Enabled       bool
 	LastScannedAt *time.Time
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 type LibraryPathConfig struct {
 	Path      string
 	Name      string
 	MediaType string
+}
+
+// LibraryInput is a create request from the admin API.
+type LibraryInput struct {
+	Path      string
+	Name      string
+	MediaType string
+	Enabled   bool
+}
+
+// LibraryUpdate is a mutable-fields patch (path is immutable).
+type LibraryUpdate struct {
+	Name      string
+	MediaType string
+	Enabled   bool
 }
 
 // ScanEvent is a recorded scanner run.
@@ -57,10 +74,9 @@ func (s *Store) UpsertLibraryPathConfig(ctx context.Context, cfg LibraryPathConf
 	return id, err
 }
 
-// ListLibraryPaths returns all configured roots.
 func (s *Store) ListLibraryPaths(ctx context.Context) ([]LibraryPath, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, path, name, media_type, enabled, last_scanned_at
+		SELECT id, path, name, media_type, enabled, last_scanned_at, created_at, updated_at
 		FROM library_path
 		ORDER BY name ASC, id ASC
 	`)
@@ -71,7 +87,8 @@ func (s *Store) ListLibraryPaths(ctx context.Context) ([]LibraryPath, error) {
 	var out []LibraryPath
 	for rows.Next() {
 		var lp LibraryPath
-		if err := rows.Scan(&lp.ID, &lp.Path, &lp.Name, &lp.MediaType, &lp.Enabled, &lp.LastScannedAt); err != nil {
+		if err := rows.Scan(&lp.ID, &lp.Path, &lp.Name, &lp.MediaType, &lp.Enabled,
+			&lp.LastScannedAt, &lp.CreatedAt, &lp.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, lp)

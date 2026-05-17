@@ -72,8 +72,13 @@ func main() {
 		if err != nil {
 			return 0, err
 		}
-		eventID, _ := st.InsertScanEvent(ctx, nil)
-		var totalAdded, totalChanged, totalDeleted int
+		eventID, err := st.InsertScanEvent(ctx, nil)
+		if err != nil {
+			// Without an audit row a scan that runs (and may partially fail)
+			// would report HTTP 200 {"scan_event_id":0} — abort instead.
+			return 0, fmt.Errorf("insert scan_event: %w", err)
+		}
+		var totalAdded, totalChanged, totalDeleted, totalFailed int
 		for _, lp := range paths {
 			if !lp.Enabled {
 				continue
@@ -84,15 +89,26 @@ func main() {
 				Logger:          slogger,
 			})
 			if walkErr != nil {
-				_ = st.FinishScanEvent(ctx, eventID, totalAdded, totalChanged, totalDeleted, walkErr.Error())
+				if ferr := st.FinishScanEvent(ctx, eventID, totalAdded, totalChanged, totalDeleted, walkErr.Error()); ferr != nil {
+					logger.Warn("finish scan_event", "err", ferr)
+				}
 				return eventID, walkErr
 			}
 			totalAdded += res.Added
 			totalChanged += res.Changed
 			totalDeleted += res.Deleted
+			totalFailed += res.Failed
 			_ = st.MarkLibraryScanned(ctx, lp.ID)
 		}
-		_ = st.FinishScanEvent(ctx, eventID, totalAdded, totalChanged, totalDeleted, "")
+		// Record per-file degradation in the audit row instead of reporting a
+		// clean success when files actually failed to ingest.
+		scanErrText := ""
+		if totalFailed > 0 {
+			scanErrText = fmt.Sprintf("%d file(s) failed to ingest", totalFailed)
+		}
+		if ferr := st.FinishScanEvent(ctx, eventID, totalAdded, totalChanged, totalDeleted, scanErrText); ferr != nil {
+			logger.Warn("finish scan_event", "err", ferr)
+		}
 
 		if c := cfgPtr.Load(); c != nil && c.ScanInlineEnrich {
 			if w := workerPtr.Load(); w != nil {

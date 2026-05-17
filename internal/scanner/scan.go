@@ -39,11 +39,14 @@ type Store interface {
 	SoftDelete(ctx context.Context, ebookID string) error
 }
 
-// WalkResult summarizes a single library_path scan.
+// WalkResult summarizes a single library_path scan. Failed counts files
+// that errored during upsert so the caller can record degradation in the
+// scan_event audit row instead of reporting a clean success.
 type WalkResult struct {
 	Added   int
 	Changed int
 	Deleted int
+	Failed  int
 }
 
 // Walk traverses `root` (with library_path_id `lpID` for FK), parses each
@@ -64,20 +67,37 @@ func Walk(ctx context.Context, root string, lpID int64, deps Deps) (WalkResult, 
 	}
 
 	seenIDs := map[string]struct{}{}
+	walkHadErrors := false
 
 	walkFn := func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
+			// An unreadable entry/subtree means our view is incomplete; record
+			// it so we don't soft-delete still-present rows we just couldn't see.
+			walkHadErrors = true
+			deps.Logger.Warn("walk entry error", "path", path, "err", err)
 			return nil
-		} // best-effort
+		}
 		if d.IsDir() {
 			return nil
 		}
 		if !ebookparse.IsSupported(path) {
 			return nil
 		}
+		// Mark a known path as seen up front so a transient stat error below
+		// can't make a still-present file get spuriously soft-deleted.
+		if priorID, ok := pathToID[path]; ok {
+			seenIDs[priorID] = struct{}{}
+		}
 
 		info, err := d.Info()
 		if err != nil {
+			return nil
+		}
+		// Only ingest regular files. d.Info() is lstat data, so a symlink
+		// reports its own (non-regular) mode here; rejecting it prevents the
+		// symlink-escape vector where a link inside a library root makes the
+		// parser/os.ReadFile follow it and read arbitrary host files.
+		if !info.Mode().IsRegular() {
 			return nil
 		}
 		id := stableID(path, info.Size(), info.ModTime())
@@ -88,7 +108,7 @@ func Walk(ctx context.Context, root string, lpID int64, deps Deps) (WalkResult, 
 			return nil
 		}
 
-		p, err := ebookparse.Parse(path)
+		p, err := parseRecovered(path)
 		if err != nil {
 			deps.Logger.Warn("parse failed; ingesting with empty metadata", "path", path, "err", err)
 			p = ebookparse.Parsed{Format: strings.TrimPrefix(filepath.Ext(path), ".")}
@@ -97,6 +117,7 @@ func Walk(ctx context.Context, root string, lpID int64, deps Deps) (WalkResult, 
 		wasKnown, upsertErr := deps.Store.UpsertEbook(ctx, lpID, id, path, p.Format, info.Size(), info.ModTime(), p)
 		if upsertErr != nil {
 			deps.Logger.Warn("upsert failed", "path", path, "err", upsertErr)
+			res.Failed++
 			return nil
 		}
 		if wasKnown {
@@ -130,6 +151,13 @@ func Walk(ctx context.Context, root string, lpID int64, deps Deps) (WalkResult, 
 		return res, fmt.Errorf("scanner: walk: %w", err)
 	}
 
+	// Only reconcile deletions when the walk saw the tree completely. If any
+	// entry errored (e.g. a permissions blip on a subtree), the ids under it
+	// are absent from seenIDs and would be mass soft-deleted spuriously.
+	if walkHadErrors {
+		deps.Logger.Warn("skipping soft-delete reconcile: walk had entry errors", "root", root)
+		return res, nil
+	}
 	for id := range knownByID {
 		if _, ok := seenIDs[id]; ok {
 			continue
@@ -142,6 +170,18 @@ func Walk(ctx context.Context, root string, lpID int64, deps Deps) (WalkResult, 
 	}
 
 	return res, nil
+}
+
+// parseRecovered wraps ebookparse.Parse so a panic in any parser (e.g. the
+// third-party PDF reader on a malformed file) is turned into an error and
+// the file is ingested with empty metadata, instead of crashing the scan.
+func parseRecovered(path string) (p ebookparse.Parsed, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panic parsing %s: %v", path, r)
+		}
+	}()
+	return ebookparse.Parse(path)
 }
 
 // stableID returns blake2b(path || size || mtime) truncated to 16 hex chars.
@@ -164,6 +204,11 @@ func findSidecarCover(dir string) ([]byte, string, bool) {
 	}
 	for _, c := range candidates {
 		p := filepath.Join(dir, c.name)
+		// Lstat + regular-file check so a cover.jpg symlink can't exfiltrate
+		// an arbitrary host file into the cover table.
+		if fi, err := os.Lstat(p); err != nil || !fi.Mode().IsRegular() {
+			continue
+		}
 		b, err := os.ReadFile(p)
 		if err != nil {
 			if !errors.Is(err, os.ErrNotExist) {

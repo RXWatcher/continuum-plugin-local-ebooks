@@ -38,10 +38,14 @@ func NewCache(pool *pgxpool.Pool, ttl time.Duration) *Cache {
 	return &Cache{pool: pool, ttl: ttl}
 }
 
-// Key formats a cache key as "<source>:<kind>:<region>:<sha1(query)>".
+// Key formats a cache key as "<source>:<kind>:<sha1(region\x00query)>".
+// region (operator/caller-controlled) is folded into the hash rather than
+// interpolated raw, so a region containing the ':' delimiter can't shift
+// field boundaries and collide distinct cached payloads. source and kind are
+// fixed internal constants and stay readable for debugging.
 func Key(source string, kind LookupKind, region, query string) string {
-	sum := sha1.Sum([]byte(query))
-	return fmt.Sprintf("%s:%s:%s:%s", source, kind, region, hex.EncodeToString(sum[:]))
+	sum := sha1.Sum([]byte(region + "\x00" + query))
+	return fmt.Sprintf("%s:%s:%s", source, kind, hex.EncodeToString(sum[:]))
 }
 
 // ErrCacheMiss is returned by Get when no live (within-TTL) entry exists.

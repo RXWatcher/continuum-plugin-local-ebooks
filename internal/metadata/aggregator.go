@@ -14,6 +14,15 @@ import (
 // MaxResults caps the aggregated result count.
 const MaxResults = 20
 
+const (
+	// aggregateTimeout bounds an entire multi-source Search.
+	aggregateTimeout = 30 * time.Second
+	// perSourceTimeout bounds one source's rate-limit wait + upstream call.
+	perSourceTimeout = 15 * time.Second
+	// maxSourceConcurrency caps in-flight upstream calls per Search.
+	maxSourceConcurrency = 6
+)
+
 // Source is the interface every per-upstream adapter must satisfy.
 // It mirrors sources.Source; defined here to avoid an import cycle
 // (the sources package imports metadata, so metadata cannot import sources).
@@ -76,11 +85,19 @@ func (a *Aggregator) limiter(sourceID string) *rate.Limiter {
 func (a *Aggregator) Search(ctx context.Context, query, region string,
 	enabled map[string]bool, original *Candidate) ([]Match, error) {
 
+	// Bound the whole fan-out with an overall deadline and a concurrency cap.
+	// Without these, each request spawned one goroutine per enabled source
+	// (~16) with no global timeout, so a few slow/hung upstreams piled up
+	// goroutines and connections across concurrent searches.
+	sctx, cancel := context.WithTimeout(ctx, aggregateTimeout)
+	defer cancel()
+
 	var (
 		wg  sync.WaitGroup
 		mu  sync.Mutex
 		out []Match
 	)
+	sem := make(chan struct{}, maxSourceConcurrency)
 
 	for _, s := range a.registry.All() {
 		if !s.Enabled(enabled) {
@@ -90,7 +107,13 @@ func (a *Aggregator) Search(ctx context.Context, query, region string,
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			matches := a.searchOne(ctx, s, query, region, original)
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-sctx.Done():
+				return
+			}
+			matches := a.searchOne(sctx, s, query, region, original)
 			mu.Lock()
 			out = append(out, matches...)
 			mu.Unlock()
@@ -124,13 +147,16 @@ func (a *Aggregator) searchOne(ctx context.Context, s Source,
 		// bad cache row; fall through to live fetch
 	}
 
-	rctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	// One budget for the whole per-source operation (rate-limit wait AND the
+	// upstream request). Previously the 5s only bounded the limiter wait and
+	// the actual Search ran on the unbounded parent ctx.
+	rctx, cancel := context.WithTimeout(ctx, perSourceTimeout)
 	defer cancel()
 	if err := a.limiter(s.ID()).Wait(rctx); err != nil {
 		return nil
 	}
 
-	cs, err := s.Search(ctx, query, region)
+	cs, err := s.Search(rctx, query, region)
 	if err != nil {
 		return nil
 	}

@@ -9,10 +9,21 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/ContinuumApp/continuum-plugin-local-ebooks/internal/metadata"
 )
+
+// redactURL drops the query string before a URL is put in an error message.
+// Google Books / ISBNdb / Hardcover carry the API key in the query (?key=…),
+// and these errors are logged by the enrichment worker.
+func redactURL(raw string) string {
+	if base, _, found := strings.Cut(raw, "?"); found {
+		return base + "?<redacted>"
+	}
+	return raw
+}
 
 // SoftLimit on response body size to cap surprise payloads.
 const SoftLimit = 1 << 20 // 1 MB
@@ -70,7 +81,7 @@ func (h *HTTPClient) GetJSON(ctx context.Context, url string) ([]byte, error) {
 		return nil, ErrNotFound
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("source: GET %s status %d", url, resp.StatusCode)
+		return nil, fmt.Errorf("source: GET %s status %d", redactURL(url), resp.StatusCode)
 	}
 	return body, nil
 }
@@ -102,7 +113,7 @@ func (h *HTTPClient) GetJSONWithHeaders(ctx context.Context, url string, headers
 		return nil, ErrNotFound
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("source: GET %s status %d", url, resp.StatusCode)
+		return nil, fmt.Errorf("source: GET %s status %d", redactURL(url), resp.StatusCode)
 	}
 	return body, nil
 }

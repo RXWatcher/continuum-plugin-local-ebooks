@@ -98,6 +98,56 @@ func TestScan_SoftDeletesMissingFiles(t *testing.T) {
 	}
 }
 
+// TestScan_SkipsSymlinkedEbook guards the symlink-escape vector: a symlink
+// placed inside a library root must NOT be followed and ingested, otherwise
+// an attacker who can write into a scanned dir reads arbitrary host files.
+func TestScan_SkipsSymlinkedEbook(t *testing.T) {
+	dir := t.TempDir()
+	secret := filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(secret, []byte("TOP SECRET"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(dir, "book.epub"), []byte("real book"), 0o644)
+	if err := os.Symlink(secret, filepath.Join(dir, "evil.epub")); err != nil {
+		t.Skipf("symlinks unsupported here: %v", err)
+	}
+	store := newFakeStore()
+	res, err := Walk(context.Background(), dir, 1, Deps{Store: store})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Added != 1 {
+		t.Errorf("added=%d, want 1 (only the real book, not the symlink)", res.Added)
+	}
+	for _, p := range store.ebooks {
+		if filepath.Base(p) == "evil.epub" {
+			t.Fatal("symlink ebook was ingested — symlink escape not prevented")
+		}
+	}
+}
+
+// TestScan_SkipsSymlinkedSidecarCover guards the same escape via cover.jpg.
+func TestScan_SkipsSymlinkedSidecarCover(t *testing.T) {
+	dir := t.TempDir()
+	secret := filepath.Join(t.TempDir(), "secret.bin")
+	if err := os.WriteFile(secret, []byte("PRIVATE KEY BYTES"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(dir, "book.epub"), []byte("real book"), 0o644)
+	if err := os.Symlink(secret, filepath.Join(dir, "cover.jpg")); err != nil {
+		t.Skipf("symlinks unsupported here: %v", err)
+	}
+	store := newFakeStore()
+	if _, err := Walk(context.Background(), dir, 1, Deps{Store: store}); err != nil {
+		t.Fatal(err)
+	}
+	for id, b := range store.covers {
+		if string(b) == "PRIVATE KEY BYTES" {
+			t.Fatalf("sidecar cover symlink exfiltrated secret bytes for id %s", id)
+		}
+	}
+}
+
 func TestScan_NilEnqueuerIsSafe(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "book.epub"), []byte("x"), 0o644)

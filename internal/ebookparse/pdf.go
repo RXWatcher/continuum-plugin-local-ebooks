@@ -9,10 +9,19 @@ import (
 
 // ParsePDF extracts metadata from a PDF file's info dictionary.
 // PDF carries only a small set of fields; ISBN/series/language are typically absent.
-func ParsePDF(filePath string) (Parsed, error) {
-	f, r, err := pdf.Open(filePath)
-	if err != nil {
-		return Parsed{}, fmt.Errorf("pdf: open: %w", err)
+func ParsePDF(filePath string) (result Parsed, err error) {
+	// github.com/ledongthuc/pdf panics pervasively on malformed PDFs (bad
+	// xref/objects/filters) and the functions used here have no internal
+	// recover. Without this boundary one planted .pdf crashes the whole scan.
+	defer func() {
+		if rec := recover(); rec != nil {
+			result = Parsed{Format: "pdf"}
+			err = fmt.Errorf("pdf: panic parsing %s: %v", filePath, rec)
+		}
+	}()
+	f, r, openErr := pdf.Open(filePath)
+	if openErr != nil {
+		return Parsed{}, fmt.Errorf("pdf: open: %w", openErr)
 	}
 	defer f.Close()
 

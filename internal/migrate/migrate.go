@@ -5,6 +5,7 @@ package migrate
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"sort"
@@ -53,6 +54,11 @@ func Run(ctx context.Context, dsn string) error {
 			`SELECT 1 FROM schema_migration WHERE version = $1`, version).Scan(&exists)
 		if err == nil {
 			continue // already applied
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			// A real query/connection error must not be misread as
+			// "not applied" and trigger a re-apply with a confusing failure.
+			return fmt.Errorf("check applied %s: %w", version, err)
 		}
 		body, err := fs.ReadFile(files.FS, name)
 		if err != nil {

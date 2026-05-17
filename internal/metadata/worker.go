@@ -3,9 +3,19 @@ package metadata
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
+	"time"
 
 	"github.com/hashicorp/go-hclog"
+)
+
+const (
+	// maxClaimFailures bounds consecutive transient ClaimNext errors before
+	// Drain gives up (a single blip no longer aborts the whole queue).
+	maxClaimFailures = 5
+	// claimBackoff spaces out retries so a persistent error can't hot-loop.
+	claimBackoff = 2 * time.Second
 )
 
 // ErrNotFound is the sentinel sources return when a lookup yields no record.
@@ -50,6 +60,7 @@ func NewEnrichmentWorker(q *Queue, s EnrichmentStore, reg EnrichmentRegistry,
 // Drain processes pending jobs until the queue is empty or ctx is canceled.
 // The queue's FOR UPDATE SKIP LOCKED in ClaimNext is the concurrency guard.
 func (w *EnrichmentWorker) Drain(ctx context.Context) error {
+	consecFail := 0
 	for {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -59,9 +70,25 @@ func (w *EnrichmentWorker) Drain(ctx context.Context) error {
 			return nil
 		}
 		if err != nil {
-			w.Logger.Warn("claim next job", "err", err)
-			return err
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return err
+			}
+			// Transient (pool exhaustion, SKIP LOCKED serialization, brief
+			// reset): retry with backoff instead of abandoning every
+			// remaining pending job until the next scheduled drain.
+			consecFail++
+			w.Logger.Warn("claim next job", "err", err, "consecutive_failures", consecFail)
+			if consecFail >= maxClaimFailures {
+				return fmt.Errorf("drain aborted after %d consecutive claim failures: %w", consecFail, err)
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(claimBackoff):
+			}
+			continue
 		}
+		consecFail = 0
 		if procErr := w.process(ctx, job); procErr != nil {
 			_ = w.Queue.MarkFailed(ctx, job.EbookID, job.Attempts, procErr.Error())
 			w.Logger.Warn("enrichment failed", "ebook_id", job.EbookID,

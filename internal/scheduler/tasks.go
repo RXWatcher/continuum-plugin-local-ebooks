@@ -5,7 +5,6 @@ package scheduler
 import (
 	"context"
 	"errors"
-	"sync"
 	"sync/atomic"
 
 	pluginv1 "github.com/ContinuumApp/continuum-plugin-sdk/pkg/pluginproto/continuum/plugin/v1"
@@ -19,7 +18,6 @@ type Tasks struct {
 	ScanFn  func(context.Context) (int64, error)
 	DrainFn func(context.Context) error
 
-	mu      sync.Mutex
 	running atomic.Bool
 }
 

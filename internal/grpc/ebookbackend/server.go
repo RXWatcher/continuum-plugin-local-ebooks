@@ -2,9 +2,9 @@ package ebookbackend
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -64,16 +64,32 @@ func (s *Server) Libraries(w http.ResponseWriter, r *http.Request) {
 
 // --- list ------------------------------------------------------------------
 
-// List handles GET /catalog. Accepts library, page, limit, search query
-// params.
+// List handles GET /catalog (and /api/v1/catalog). Accepts library,
+// library_id, page|cursor, limit, search query params.
 func (s *Server) List(w http.ResponseWriter, r *http.Request) {
-	p := store.ListParams{
-		Library:   r.URL.Query().Get("library"),
-		LibraryID: int64(atoi(r.URL.Query().Get("library_id"))),
-		Search:    r.URL.Query().Get("search"),
-		Page:      atoi(r.URL.Query().Get("page")),
-		Limit:     atoi(r.URL.Query().Get("limit")),
+	p, ok := listParams(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid library_id")
+		return
 	}
+	s.listEbooks(w, r, p)
+}
+
+// Search handles GET /api/v1/catalog/search?q=. The portal contract uses the
+// `q` param; we fall back to `search` for direct callers.
+func (s *Server) Search(w http.ResponseWriter, r *http.Request) {
+	p, ok := listParams(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid library_id")
+		return
+	}
+	if q := r.URL.Query().Get("q"); q != "" {
+		p.Search = q
+	}
+	s.listEbooks(w, r, p)
+}
+
+func (s *Server) listEbooks(w http.ResponseWriter, r *http.Request, p store.ListParams) {
 	out, err := s.store.ListEbooks(r.Context(), p)
 	if err != nil {
 		s.serverError(w, "list ebooks", err)
@@ -82,6 +98,7 @@ func (s *Server) List(w http.ResponseWriter, r *http.Request) {
 	wire := Page[Book]{
 		Items: make([]Book, len(out.Items)),
 		Total: out.Total, Page: out.Page, Limit: out.Limit,
+		NextCursor: nextCursor(out.Page, out.Limit, out.Total),
 	}
 	for i, e := range out.Items {
 		b := ToBook(e)
@@ -180,23 +197,25 @@ func (s *Server) File(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", FormatToMime(format))
 	w.Header().Set("Content-Disposition", `attachment; filename="`+filename+`"`)
-	w.Header().Set("Content-Length", strconv.FormatInt(stat.Size(), 10))
-	w.WriteHeader(http.StatusOK)
-	if _, err := io.Copy(w, f); err != nil {
-		// Connection likely closed; nothing useful to send.
-		s.logger.Debug("copy ebook file", "id", id, "err", err)
-	}
+	// ServeContent honors Range/If-Range and emits 206/Accept-Ranges/
+	// Content-Length — required because /capabilities advertises
+	// supports_range_requests:true (resumable/seeking ereader downloads).
+	http.ServeContent(w, r, filename, stat.ModTime(), f)
 }
 
 // Authors handles GET /catalog/authors.
 func (s *Server) Authors(w http.ResponseWriter, r *http.Request) {
-	p := pageParams(r)
+	p, ok := listParams(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid library_id")
+		return
+	}
 	out, err := s.store.ListAuthors(r.Context(), p)
 	if err != nil {
 		s.serverError(w, "list authors", err)
 		return
 	}
-	wire := Page[Author]{Items: make([]Author, len(out.Items)), Total: out.Total, Page: out.Page, Limit: out.Limit}
+	wire := Page[Author]{Items: make([]Author, len(out.Items)), Total: out.Total, Page: out.Page, Limit: out.Limit, NextCursor: nextCursor(out.Page, out.Limit, out.Total)}
 	for i, a := range out.Items {
 		wire.Items[i] = ToAuthor(a)
 	}
@@ -205,13 +224,17 @@ func (s *Server) Authors(w http.ResponseWriter, r *http.Request) {
 
 // SeriesList handles GET /catalog/series.
 func (s *Server) SeriesList(w http.ResponseWriter, r *http.Request) {
-	p := pageParams(r)
+	p, ok := listParams(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid library_id")
+		return
+	}
 	out, err := s.store.ListSeries(r.Context(), p)
 	if err != nil {
 		s.serverError(w, "list series", err)
 		return
 	}
-	wire := Page[Series]{Items: make([]Series, len(out.Items)), Total: out.Total, Page: out.Page, Limit: out.Limit}
+	wire := Page[Series]{Items: make([]Series, len(out.Items)), Total: out.Total, Page: out.Page, Limit: out.Limit, NextCursor: nextCursor(out.Page, out.Limit, out.Total)}
 	for i, x := range out.Items {
 		wire.Items[i] = ToSeries(x)
 	}
@@ -220,13 +243,17 @@ func (s *Server) SeriesList(w http.ResponseWriter, r *http.Request) {
 
 // Genres handles GET /catalog/genres.
 func (s *Server) Genres(w http.ResponseWriter, r *http.Request) {
-	p := pageParams(r)
+	p, ok := listParams(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid library_id")
+		return
+	}
 	out, err := s.store.ListGenres(r.Context(), p)
 	if err != nil {
 		s.serverError(w, "list genres", err)
 		return
 	}
-	wire := Page[Genre]{Items: make([]Genre, len(out.Items)), Total: out.Total, Page: out.Page, Limit: out.Limit}
+	wire := Page[Genre]{Items: make([]Genre, len(out.Items)), Total: out.Total, Page: out.Page, Limit: out.Limit, NextCursor: nextCursor(out.Page, out.Limit, out.Total)}
 	for i, g := range out.Items {
 		wire.Items[i] = ToGenre(g)
 	}
@@ -235,19 +262,62 @@ func (s *Server) Genres(w http.ResponseWriter, r *http.Request) {
 
 // --- helpers ---------------------------------------------------------------
 
-func pageParams(r *http.Request) store.ListParams {
-	return store.ListParams{
-		Page:      atoi(r.URL.Query().Get("page")),
-		Limit:     atoi(r.URL.Query().Get("limit")),
-		Search:    r.URL.Query().Get("search"),
-		LibraryID: int64(atoi(r.URL.Query().Get("library_id"))),
-		Library:   r.URL.Query().Get("library"),
-	}
-}
 
 func atoi(s string) int {
 	n, _ := strconv.Atoi(s)
 	return n
+}
+
+// decodeCursor maps an opaque ?cursor= (base64 of a 1-based page number)
+// back to a page. Empty/invalid -> 0 (normalized to page 1 downstream).
+func decodeCursor(s string) int {
+	if s == "" {
+		return 0
+	}
+	b, err := base64.RawURLEncoding.DecodeString(s)
+	if err != nil {
+		return 0
+	}
+	n, err := strconv.Atoi(string(b))
+	if err != nil || n < 1 {
+		return 0
+	}
+	return n
+}
+
+// nextCursor returns the cursor for the page after (page,limit) given total,
+// or "" when there are no more rows (the portal stops paginating on absence).
+func nextCursor(page, limit, total int) string {
+	if limit <= 0 || page <= 0 || page*limit >= total {
+		return ""
+	}
+	return base64.RawURLEncoding.EncodeToString([]byte(strconv.Itoa(page + 1)))
+}
+
+// listParams builds ListParams from the request, accepting either ?page= or
+// an opaque ?cursor=. ok=false means a present library_id was invalid — the
+// caller returns 400 rather than silently dropping the filter and leaking
+// the entire multi-library catalog.
+func listParams(r *http.Request) (store.ListParams, bool) {
+	q := r.URL.Query()
+	p := store.ListParams{
+		Library: q.Get("library"),
+		Search:  q.Get("search"),
+		Limit:   atoi(q.Get("limit")),
+	}
+	if c := q.Get("cursor"); c != "" {
+		p.Page = decodeCursor(c)
+	} else {
+		p.Page = atoi(q.Get("page"))
+	}
+	if v := q.Get("library_id"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n <= 0 {
+			return store.ListParams{}, false
+		}
+		p.LibraryID = int64(n)
+	}
+	return p, true
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

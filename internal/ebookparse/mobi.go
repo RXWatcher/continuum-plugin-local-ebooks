@@ -38,7 +38,9 @@ func ParseMOBI(filePath, ext string) (Parsed, error) {
 		return Parsed{}, fmt.Errorf("mobi: invalid record list")
 	}
 	rec0Offset := binary.BigEndian.Uint32(data[78:82])
-	if int(rec0Offset)+20 >= len(data) {
+	// Need rec0Offset+24 bytes for the sig (rec0+16:rec0+20) and header-len
+	// (rec0+20:rec0+24) reads below. int64 avoids the int-overflow edge.
+	if int64(rec0Offset)+24 > int64(len(data)) {
 		return Parsed{}, fmt.Errorf("mobi: record 0 offset out of range")
 	}
 
@@ -49,10 +51,14 @@ func ParseMOBI(filePath, ext string) (Parsed, error) {
 	}
 
 	mobiHeaderLen := binary.BigEndian.Uint32(data[rec0Offset+20 : rec0Offset+24])
-	mobiEnd := rec0Offset + 16 + mobiHeaderLen
-	if int(mobiEnd) > len(data) {
-		mobiEnd = uint32(len(data))
+	// Widen to int64: rec0Offset+16+mobiHeaderLen can overflow uint32 (header
+	// len is attacker-controlled) and wrap to a small value that defeats the
+	// truncation guard. len(data) is <=256 KiB so the uint32 cast is safe.
+	mobiEnd64 := int64(rec0Offset) + 16 + int64(mobiHeaderLen)
+	if mobiEnd64 > int64(len(data)) {
+		mobiEnd64 = int64(len(data))
 	}
+	mobiEnd := uint32(mobiEnd64)
 
 	// EXTH header right after mobi header (if present)
 	exthStart := mobiEnd

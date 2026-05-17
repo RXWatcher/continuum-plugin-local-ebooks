@@ -69,10 +69,14 @@ type Genre struct {
 	Count int    `json:"count"`
 }
 
-// Page is the paginated wrapper for all list responses.
+// Page is the paginated wrapper for all list responses. NextCursor follows
+// the ebook_backend.v1 contract the portal consumes: it paginates by opaque
+// cursor and treats an absent next_cursor as "no more pages". page/limit are
+// retained for offset-style/standalone callers.
 type Page[T any] struct {
-	Items []T `json:"items"`
-	Total int `json:"total"`
-	Page  int `json:"page"`
-	Limit int `json:"limit"`
+	Items      []T    `json:"items"`
+	Total      int    `json:"total"`
+	Page       int    `json:"page"`
+	Limit      int    `json:"limit"`
+	NextCursor string `json:"next_cursor,omitempty"`
 }

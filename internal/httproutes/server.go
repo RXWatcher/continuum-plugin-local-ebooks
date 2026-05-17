@@ -13,10 +13,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync/atomic"
 
 	pluginv1 "github.com/ContinuumApp/continuum-plugin-sdk/pkg/pluginproto/continuum/plugin/v1"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 type Server struct {
@@ -69,11 +71,21 @@ func (s *Server) Handle(_ context.Context, req *pluginv1.HandleHTTPRequest) (*pl
 	if req.GetQuery() != nil {
 		vals := url.Values{}
 		for k, v := range req.GetQuery().GetFields() {
-			if sv := v.GetStringValue(); sv != "" {
-				vals.Set(k, sv)
-				continue
+			// Switch on the structpb kind. The old fallback used v.String(),
+			// the protobuf *debug* text (e.g. "number_value:20"), so a numeric
+			// query param like ?limit=20 sent as a JSON number became
+			// "limit=number_value:20" and broke all pagination once routing
+			// reached the handlers.
+			switch kind := v.GetKind().(type) {
+			case *structpb.Value_StringValue:
+				vals.Set(k, kind.StringValue)
+			case *structpb.Value_NumberValue:
+				vals.Set(k, strconv.FormatFloat(kind.NumberValue, 'f', -1, 64))
+			case *structpb.Value_BoolValue:
+				vals.Set(k, strconv.FormatBool(kind.BoolValue))
+			default:
+				// null / struct / list — query params are scalars; skip.
 			}
-			vals.Set(k, v.String())
 		}
 		rawQuery = vals.Encode()
 	}

@@ -222,7 +222,7 @@ func (s *Store) GetEbookByID(ctx context.Context, id string) (EbookDetail, error
 		       EXISTS(SELECT 1 FROM cover c WHERE c.ebook_id = e.id) AS has_cover
 		FROM ebook e
 		JOIN library_path lp ON lp.id = e.library_path_id
-		WHERE e.id = $1 AND e.deleted = FALSE
+		WHERE e.id = $1 AND e.deleted = FALSE AND lp.enabled = TRUE
 	`, id).Scan(
 		&d.ID, &d.LibraryID, &d.LibraryName, &d.MediaType,
 		&d.Title, &authorCSV, &d.Series, &d.SeriesIndex, &d.Year, &d.Language, &d.Format,
@@ -248,8 +248,14 @@ func (s *Store) GetCover(ctx context.Context, id string) ([]byte, string, error)
 		bytes       []byte
 		contentType string
 	)
+	// Join through ebook+library_path so a disabled library's (or a
+	// soft-deleted ebook's) cover is not still served by id.
 	err := s.pool.QueryRow(ctx, `
-		SELECT bytes, content_type FROM cover WHERE ebook_id = $1
+		SELECT c.bytes, c.content_type
+		FROM cover c
+		JOIN ebook e ON e.id = c.ebook_id
+		JOIN library_path lp ON lp.id = e.library_path_id
+		WHERE c.ebook_id = $1 AND e.deleted = FALSE AND lp.enabled = TRUE
 	`, id).Scan(&bytes, &contentType)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, "", ErrNotFound
@@ -269,7 +275,8 @@ func (s *Store) GetEbookPath(ctx context.Context, id string) (string, string, er
 	var path, format string
 	err := s.pool.QueryRow(ctx, `
 		SELECT e.path, e.format FROM ebook e
-		WHERE e.id = $1 AND e.deleted = FALSE
+		JOIN library_path lp ON lp.id = e.library_path_id
+		WHERE e.id = $1 AND e.deleted = FALSE AND lp.enabled = TRUE
 	`, id).Scan(&path, &format)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", "", ErrNotFound

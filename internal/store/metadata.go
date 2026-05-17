@@ -42,13 +42,19 @@ func (s *Store) UpdateEbookMetadata(ctx context.Context, row metadata.EbookRow) 
 	return err
 }
 
-// BulkEnqueueBackfill enqueues all non-deleted ebooks for metadata enrichment.
-// Existing job rows are left untouched (ON CONFLICT DO NOTHING).
+// BulkEnqueueBackfill enqueues all non-deleted ebooks for metadata
+// enrichment. Brand-new ebooks get a fresh job; a previously-FAILED job is
+// re-armed (the old DO NOTHING meant an admin "backfill all" silently
+// skipped every book that had exhausted its retries). In-flight (pending)
+// and completed jobs are left untouched.
 func (s *Store) BulkEnqueueBackfill(ctx context.Context) (int64, error) {
 	tag, err := s.pool.Exec(ctx, `
 		INSERT INTO metadata_enrichment_job (ebook_id)
 		SELECT id FROM ebook WHERE deleted = FALSE
-		ON CONFLICT DO NOTHING
+		ON CONFLICT (ebook_id) DO UPDATE
+		  SET status = 'pending', attempts = 0,
+		      run_after = now(), last_error = '', finished_at = NULL
+		WHERE metadata_enrichment_job.status = 'failed'
 	`)
 	if err != nil {
 		return 0, err

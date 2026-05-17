@@ -1,0 +1,2 @@
+-- no-op: dropping audit columns on rollback is not worth the data churn;
+-- the runner only applies *.up.sql, this exists for symmetry.

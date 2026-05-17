@@ -1,0 +1,2 @@
+-- no-op: dropping content_sig on rollback is not worth the data churn;
+-- the runner only applies *.up.sql, this exists for symmetry.

@@ -16,6 +16,7 @@ import (
 	"golang.org/x/crypto/blake2b"
 
 	"github.com/ContinuumApp/continuum-plugin-local-ebooks/internal/ebookparse"
+	"github.com/ContinuumApp/continuum-plugin-local-ebooks/internal/store"
 )
 
 // EnrichmentEnqueuer is the surface the scanner needs from metadata.Queue.
@@ -33,9 +34,9 @@ type Deps struct {
 // Store is the surface the scanner needs.
 type Store interface {
 	UpsertEbook(ctx context.Context, libraryPathID int64, ebookID, path, format string,
-		fileSize int64, mtime time.Time, p ebookparse.Parsed) (wasKnown bool, err error)
+		fileSize int64, mtime time.Time, contentSig string, p ebookparse.Parsed) (id string, wasKnown bool, err error)
 	UpsertCover(ctx context.Context, ebookID, contentType, source string, bytes []byte) error
-	ListPaths(ctx context.Context, libraryPathID int64) (map[string]string, error)
+	ListEbookRefs(ctx context.Context, libraryPathID int64) ([]store.EbookFileRef, error)
 	SoftDelete(ctx context.Context, ebookID string) error
 }
 
@@ -57,13 +58,13 @@ func Walk(ctx context.Context, root string, lpID int64, deps Deps) (WalkResult, 
 	}
 	res := WalkResult{}
 
-	knownByID, err := deps.Store.ListPaths(ctx, lpID)
+	refs, err := deps.Store.ListEbookRefs(ctx, lpID)
 	if err != nil {
-		return res, fmt.Errorf("scanner: list paths: %w", err)
+		return res, fmt.Errorf("scanner: list ebook refs: %w", err)
 	}
-	pathToID := map[string]string{}
-	for id, p := range knownByID {
-		pathToID[p] = id
+	byPath := make(map[string]store.EbookFileRef, len(refs))
+	for _, r := range refs {
+		byPath[r.Path] = r
 	}
 
 	seenIDs := map[string]struct{}{}
@@ -83,10 +84,11 @@ func Walk(ctx context.Context, root string, lpID int64, deps Deps) (WalkResult, 
 		if !ebookparse.IsSupported(path) {
 			return nil
 		}
-		// Mark a known path as seen up front so a transient stat error below
-		// can't make a still-present file get spuriously soft-deleted.
-		if priorID, ok := pathToID[path]; ok {
-			seenIDs[priorID] = struct{}{}
+		// Mark a known path's STABLE id as seen up front so a transient stat
+		// error below can't make a still-present file get soft-deleted.
+		ref, known := byPath[path]
+		if known {
+			seenIDs[ref.ID] = struct{}{}
 		}
 
 		info, err := d.Info()
@@ -100,12 +102,22 @@ func Walk(ctx context.Context, root string, lpID int64, deps Deps) (WalkResult, 
 		if !info.Mode().IsRegular() {
 			return nil
 		}
-		id := stableID(path, info.Size(), info.ModTime())
-		seenIDs[id] = struct{}{}
+		sig := stableID(path, info.Size(), info.ModTime())
 
-		// Skip re-ingest if we've already seen this exact (path, id) pair.
-		if priorID, ok := pathToID[path]; ok && priorID == id {
+		// Unchanged file: same (size,mtime) signature as last ingest. Skip
+		// parse/upsert/enqueue — re-enqueuing here would reset every already
+		// enriched row back to pending on every scan. Already marked seen.
+		if known && ref.ContentSig == sig {
 			return nil
+		}
+
+		// New or content-changed. Reuse the existing STABLE id for a known
+		// path so the PK never churns (the ON CONFLICT no longer rewrites id,
+		// which previously FK-violated cover/metadata_enrichment_job for
+		// edited-and-covered books); a brand-new path uses sig as its id.
+		ebookID := sig
+		if known {
+			ebookID = ref.ID
 		}
 
 		p, err := parseRecovered(path)
@@ -114,34 +126,36 @@ func Walk(ctx context.Context, root string, lpID int64, deps Deps) (WalkResult, 
 			p = ebookparse.Parsed{Format: strings.TrimPrefix(filepath.Ext(path), ".")}
 		}
 
-		wasKnown, upsertErr := deps.Store.UpsertEbook(ctx, lpID, id, path, p.Format, info.Size(), info.ModTime(), p)
+		rowID, wasKnown, upsertErr := deps.Store.UpsertEbook(ctx, lpID, ebookID, path, p.Format, info.Size(), info.ModTime(), sig, p)
 		if upsertErr != nil {
 			deps.Logger.Warn("upsert failed", "path", path, "err", upsertErr)
 			res.Failed++
 			return nil
 		}
+		seenIDs[rowID] = struct{}{}
 		if wasKnown {
 			res.Changed++
 		} else {
 			res.Added++
 		}
 
-		// Cover: embedded first, then sidecar fallback.
+		// Cover: embedded first, then sidecar fallback. Use the authoritative
+		// rowID returned by UpsertEbook (the stable PK).
 		if p.Cover != nil && len(p.Cover.Bytes) > 0 {
-			if err := deps.Store.UpsertCover(ctx, id, p.Cover.ContentType, "embedded", p.Cover.Bytes); err != nil {
+			if err := deps.Store.UpsertCover(ctx, rowID, p.Cover.ContentType, "embedded", p.Cover.Bytes); err != nil {
 				deps.Logger.Warn("cover write (embedded)", "err", err)
 			}
 		} else {
 			if sc, ct, ok := findSidecarCover(filepath.Dir(path)); ok {
-				if err := deps.Store.UpsertCover(ctx, id, ct, "sidecar", sc); err != nil {
+				if err := deps.Store.UpsertCover(ctx, rowID, ct, "sidecar", sc); err != nil {
 					deps.Logger.Warn("cover write (sidecar)", "err", err)
 				}
 			}
 		}
 
 		if deps.EnrichmentQueue != nil {
-			if err := deps.EnrichmentQueue.Enqueue(ctx, id); err != nil {
-				deps.Logger.Warn("enqueue enrichment", "ebook_id", id, "err", err)
+			if err := deps.EnrichmentQueue.Enqueue(ctx, rowID); err != nil {
+				deps.Logger.Warn("enqueue enrichment", "ebook_id", rowID, "err", err)
 			}
 		}
 		return nil
@@ -158,12 +172,12 @@ func Walk(ctx context.Context, root string, lpID int64, deps Deps) (WalkResult, 
 		deps.Logger.Warn("skipping soft-delete reconcile: walk had entry errors", "root", root)
 		return res, nil
 	}
-	for id := range knownByID {
-		if _, ok := seenIDs[id]; ok {
+	for _, r := range refs {
+		if _, ok := seenIDs[r.ID]; ok {
 			continue
 		}
-		if err := deps.Store.SoftDelete(ctx, id); err != nil {
-			deps.Logger.Warn("soft-delete", "id", id, "err", err)
+		if err := deps.Store.SoftDelete(ctx, r.ID); err != nil {
+			deps.Logger.Warn("soft-delete", "id", r.ID, "err", err)
 			continue
 		}
 		res.Deleted++

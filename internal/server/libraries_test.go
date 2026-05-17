@@ -94,4 +94,29 @@ func TestDeleteLibrary_NotFoundIs404(t *testing.T) {
 	if rec.Code != 404 {
 		t.Fatalf("status = %d, want 404", rec.Code)
 	}
+	// (delete path still calls the store before mapping the error)
+}
+
+func TestUpdateLibrary_OK(t *testing.T) {
+	fs := &fakeLibStore{}
+	mux := newLibMux(fs)
+	body, _ := json.Marshal(map[string]any{"name": "New", "media_type": "book", "enabled": true})
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest("PATCH", "/admin/libraries/1", bytes.NewReader(body)))
+	if rec.Code != 200 {
+		t.Fatalf("status = %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+	if !fs.updated {
+		t.Fatal("UpdateLibrary was not called")
+	}
+}
+
+func TestUpdateLibrary_NotFoundIs404(t *testing.T) {
+	mux := newLibMux(&fakeLibStore{updateErr: store.ErrNotFound})
+	body, _ := json.Marshal(map[string]any{"name": "x", "media_type": "book", "enabled": true})
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest("PATCH", "/admin/libraries/1", bytes.NewReader(body)))
+	if rec.Code != 404 {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
 	"strconv"
 
 	"github.com/ContinuumApp/continuum-plugin-local-ebooks/internal/libcfg"
@@ -30,6 +31,14 @@ type LibraryDeps struct {
 
 // MountLibraryRoutes registers /admin/libraries* routes on mux.
 func MountLibraryRoutes(mux *http.ServeMux, deps LibraryDeps) {
+	dirExists := deps.DirExists
+	if dirExists == nil {
+		dirExists = func(p string) bool {
+			fi, err := os.Stat(p)
+			return err == nil && fi.IsDir()
+		}
+	}
+
 	mux.HandleFunc("GET /admin/libraries", func(w http.ResponseWriter, r *http.Request) {
 		rows, err := deps.Store.ListLibraryPaths(r.Context())
 		if err != nil {
@@ -59,7 +68,7 @@ func MountLibraryRoutes(mux *http.ServeMux, deps LibraryDeps) {
 			writeError(w, http.StatusBadRequest, errors.New("invalid media_type"))
 			return
 		}
-		if deps.DirExists != nil && !deps.DirExists(path) {
+		if !dirExists(path) {
 			writeError(w, http.StatusBadRequest, errors.New("path is not an existing directory"))
 			return
 		}
@@ -77,6 +86,8 @@ func MountLibraryRoutes(mux *http.ServeMux, deps LibraryDeps) {
 		writeJSON(w, http.StatusCreated, map[string]any{"id": id})
 	})
 
+	// PATCH is full-fields: callers send name+media_type+enabled together
+	// (the admin SPA always does), so media_type is required/validated.
 	mux.HandleFunc("PATCH /admin/libraries/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id, ok := pathID(w, r)
 		if !ok {

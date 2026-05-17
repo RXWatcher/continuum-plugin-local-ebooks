@@ -6,6 +6,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sync"
 
 	pluginv1 "github.com/ContinuumApp/continuum-plugin-sdk/pkg/pluginproto/continuum/plugin/v1"
@@ -153,12 +154,44 @@ func (s *Server) Configure(_ context.Context, req *pluginv1.ConfigureRequest) (*
 	return &pluginv1.ConfigureResponse{}, nil
 }
 
-// Snapshot returns the most recently applied Config.
+// Snapshot returns the most recently applied Config. Slice fields are
+// deep-copied so a caller can't mutate the locked config's backing arrays
+// while a concurrent Configure rewrites s.cfg.
 func (s *Server) Snapshot() Config {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.cfg
+	c := s.cfg
+	c.LibraryPaths = append([]string(nil), s.cfg.LibraryPaths...)
+	c.MetadataSourcesEnabled = append([]string(nil), s.cfg.MetadataSourcesEnabled...)
+	c.Libraries = append([]LibraryConfig(nil), s.cfg.Libraries...)
+	return c
 }
+
+func mask(s string) string {
+	if s == "" {
+		return ""
+	}
+	return "***redacted***"
+}
+
+// LogValue implements slog.LogValuer so slog.Any("cfg", c) never serializes
+// the DSN (DB password), the stream-signing secret, or the API keys.
+func (c Config) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.String("database_url", mask(c.DatabaseURL)),
+		slog.Any("library_paths", c.LibraryPaths),
+		slog.String("standalone_http_listen", c.StandaloneHTTPListen),
+		slog.String("stream_signing_secret", mask(c.StreamSigningSecret)),
+		slog.Any("metadata_sources_enabled", c.MetadataSourcesEnabled),
+		slog.String("metadata_default_region", c.MetadataDefaultRegion),
+		slog.String("google_books_api_key", mask(c.GoogleBooksAPIKey)),
+		slog.String("isbndb_api_key", mask(c.ISBNdbAPIKey)),
+		slog.String("hardcover_api_key", mask(c.HardcoverAPIKey)),
+	)
+}
+
+// String implements fmt.Stringer with the same redaction.
+func (c Config) String() string { return c.LogValue().String() }
 
 func stringFrom(v any) string {
 	if s, ok := v.(string); ok {

@@ -131,7 +131,10 @@ func (s *Store) ListEbooks(ctx context.Context, p ListParams) (Paged[Ebook], err
 	page := normalizePage(p.Page)
 	offset := (page - 1) * limit
 
-	where := []string{"e.deleted = FALSE"}
+	// lp.enabled = TRUE: a disabled library is hidden from the portal
+	// (the libraries list already excludes it), so its books must not leak
+	// into an unfiltered catalog pull or a filter targeting its id.
+	where := []string{"e.deleted = FALSE", "lp.enabled = TRUE"}
 	args := []any{}
 	if p.Search != "" {
 		args = append(args, "%"+p.Search+"%")
@@ -422,7 +425,10 @@ func (s *Store) ListGenres(ctx context.Context, p ListParams) (Paged[Genre], err
 
 func libraryAggregateWhere(p ListParams) ([]any, string) {
 	args := []any{}
-	where := ""
+	// Browse facets (authors/series/genres) must also exclude disabled
+	// libraries — same rule as ListEbooks, so a facet never lists an entry
+	// whose only books are in a hidden library.
+	where := " AND lp.enabled = TRUE"
 	if p.Library != "" {
 		args = append(args, p.Library)
 		where += fmt.Sprintf(" AND lp.path = $%d", len(args))

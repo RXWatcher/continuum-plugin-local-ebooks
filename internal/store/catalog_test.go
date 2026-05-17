@@ -104,6 +104,50 @@ func TestListEbooks_ReturnsBothBooks(t *testing.T) {
 	}
 }
 
+// TestListEbooks_ExcludesDisabledLibrary guards the leak: a disabled
+// library's books must not appear in an unfiltered catalog pull (the portal
+// hides disabled libraries; their books must be hidden too), and filtering
+// by a disabled library id must return nothing.
+func TestListEbooks_ExcludesDisabledLibrary(t *testing.T) {
+	s, cleanup := newCatalogPool(t)
+	defer cleanup()
+	seedLibraryAndEbooks(t, s) // 2 books in an enabled library
+
+	ctx := context.Background()
+	var disabledID int64
+	if err := s.Pool().QueryRow(ctx, `
+		INSERT INTO library_path (path, enabled) VALUES ('/tmp/disabled', FALSE) RETURNING id
+	`).Scan(&disabledID); err != nil {
+		t.Fatalf("seed disabled library: %v", err)
+	}
+	if _, err := s.Pool().Exec(ctx, `
+		INSERT INTO ebook (id, library_path_id, path, format, file_size, mtime, title, author)
+		VALUES ('hidden', $1, '/tmp/disabled/h.epub', 'epub', 1, now(), 'Hidden Book', 'Nobody')
+	`, disabledID); err != nil {
+		t.Fatalf("seed hidden ebook: %v", err)
+	}
+
+	out, err := s.ListEbooks(ctx, store.ListParams{})
+	if err != nil {
+		t.Fatalf("ListEbooks: %v", err)
+	}
+	if out.Total != 2 || len(out.Items) != 2 {
+		t.Fatalf("disabled-library book leaked: total=%d items=%d", out.Total, len(out.Items))
+	}
+	for _, it := range out.Items {
+		if it.Title == "Hidden Book" {
+			t.Fatal("Hidden Book (disabled library) must not appear in the catalog")
+		}
+	}
+	f, err := s.ListEbooks(ctx, store.ListParams{LibraryID: disabledID})
+	if err != nil {
+		t.Fatalf("ListEbooks(libraryID): %v", err)
+	}
+	if f.Total != 0 {
+		t.Fatalf("filtering by a disabled library must return 0, got %d", f.Total)
+	}
+}
+
 func TestListEbooks_SearchFiltersByTitle(t *testing.T) {
 	s, cleanup := newCatalogPool(t)
 	defer cleanup()

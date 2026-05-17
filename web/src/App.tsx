@@ -1,5 +1,8 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import Libraries from "./pages/Libraries";
+import Scans from "./pages/Scans";
+import Metadata from "./pages/Metadata";
+import Diagnostics from "./pages/Diagnostics";
 
 export default function App() {
   return (
@@ -13,9 +16,9 @@ export default function App() {
           <TabsTrigger value="diagnostics">Diagnostics</TabsTrigger>
         </TabsList>
         <TabsContent value="libraries"><Libraries /></TabsContent>
-        <TabsContent value="scans"><div className="text-sm text-muted-foreground">See Task 12.</div></TabsContent>
-        <TabsContent value="metadata"><div className="text-sm text-muted-foreground">See Task 12.</div></TabsContent>
-        <TabsContent value="diagnostics"><div className="text-sm text-muted-foreground">See Task 12.</div></TabsContent>
+        <TabsContent value="scans"><Scans /></TabsContent>
+        <TabsContent value="metadata"><Metadata /></TabsContent>
+        <TabsContent value="diagnostics"><Diagnostics /></TabsContent>
       </Tabs>
     </div>
   );

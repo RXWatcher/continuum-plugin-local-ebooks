@@ -2,10 +2,8 @@ module github.com/ContinuumApp/continuum-plugin-local-ebooks
 
 go 1.26.0
 
-replace github.com/ContinuumApp/continuum-plugin-sdk => /opt/continuum_plugins/continuum-plugin-sdk
-
 require (
-	github.com/ContinuumApp/continuum-plugin-sdk v0.3.8
+	github.com/ContinuumApp/continuum-plugin-sdk v0.3.10
 	github.com/hashicorp/go-hclog v1.6.3
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728

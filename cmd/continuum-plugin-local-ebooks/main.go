@@ -297,6 +297,8 @@ func main() {
 				return
 			}
 			body = orderStylesBeforeModules(body)
+			body = rewriteAdminAssetPaths(body)
+			body = injectAdminTheme(body, r)
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write(body)
@@ -374,6 +376,34 @@ func loadManifest() (*pluginv1.PluginManifest, error) {
 		}
 	}
 	return manifest, nil
+}
+
+func rewriteAdminAssetPaths(body []byte) []byte {
+	html := string(body)
+	html = strings.ReplaceAll(html, `src="./assets/`, `src="../assets/`)
+	html = strings.ReplaceAll(html, `href="./assets/`, `href="../assets/`)
+	return []byte(html)
+}
+
+func injectAdminTheme(body []byte, r *http.Request) []byte {
+	theme := r.URL.Query().Get("theme")
+	if theme == "" {
+		theme = r.Header.Get("X-Continuum-Theme")
+	}
+	if theme == "" {
+		theme = r.Header.Get("X-Continuum-User-Theme")
+	}
+	if theme == "" {
+		return body
+	}
+	html := string(body)
+	if strings.Contains(html, `<html lang="en">`) {
+		return []byte(strings.Replace(html, `<html lang="en">`, `<html lang="en" data-theme="`+theme+`">`, 1))
+	}
+	if strings.Contains(html, `<html`) {
+		return []byte(strings.Replace(html, `<html`, `<html data-theme="`+theme+`"`, 1))
+	}
+	return body
 }
 
 func orderStylesBeforeModules(body []byte) []byte {

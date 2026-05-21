@@ -7,12 +7,10 @@ import (
 	_ "embed"
 	"encoding/hex"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	goruntime "runtime"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -35,7 +33,6 @@ import (
 	"github.com/ContinuumApp/continuum-plugin-local-ebooks/internal/scheduler"
 	"github.com/ContinuumApp/continuum-plugin-local-ebooks/internal/server"
 	"github.com/ContinuumApp/continuum-plugin-local-ebooks/internal/store"
-	web "github.com/ContinuumApp/continuum-plugin-local-ebooks/web"
 )
 
 //go:embed manifest.json
@@ -285,7 +282,7 @@ func main() {
 		configureMetadata(p, st, appCfg)
 
 		mux := http.NewServeMux()
-		catalogSrv := ebookbackend.NewServer(st, slogger)
+		catalogSrv := ebookbackend.NewServer(st, slogger, cfg.StreamSigningSecret)
 		server.MountCatalog(mux, catalogSrv)
 		server.MountAdminWithDeps(mux, server.AdminDeps{
 			Store:       st,
@@ -311,40 +308,7 @@ func main() {
 			ScanOne: runScanOne,
 		})
 
-		webFS := web.FS()
-		fileSrv := http.FileServer(webFS)
-		mux.Handle("GET /assets/", fileSrv)
-		serveAdmin := func(w http.ResponseWriter, r *http.Request) {
-			// Asset requests under /admin/assets/ map to the bundle root.
-			p := strings.TrimPrefix(r.URL.Path, "/admin")
-			if strings.HasPrefix(p, "/assets/") {
-				r2 := r.Clone(r.Context())
-				r2.URL.Path = p
-				fileSrv.ServeHTTP(w, r2)
-				return
-			}
-			// SPA entrypoint for every other /admin* path.
-			f, err := webFS.Open("index.html")
-			if err != nil {
-				http.Error(w, "ui not built", http.StatusInternalServerError)
-				return
-			}
-			defer f.Close()
-			body, err := io.ReadAll(f)
-			if err != nil {
-				http.Error(w, "ui not built", http.StatusInternalServerError)
-				return
-			}
-			body = orderStylesBeforeModules(body)
-			body = rewriteAdminAssetPaths(body, r.URL.Path)
-			body = injectAdminTheme(body, r)
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write(body)
-		}
-		mux.HandleFunc("GET /", serveAdmin)
-		mux.HandleFunc("GET /admin", serveAdmin)
-		mux.HandleFunc("GET /admin/", serveAdmin)
+		server.MountAdminHome(mux)
 
 		httpSrv.SetHandler(mux)
 
@@ -410,62 +374,3 @@ func appConfigFromRuntimeConfig(cfg pluginrt.Config) store.AppConfig {
 	}.WithDefaults()
 }
 
-func rewriteAdminAssetPaths(body []byte, requestPath string) []byte {
-	html := string(body)
-	prefix := adminAssetPrefix(requestPath)
-	html = strings.ReplaceAll(html, `src="./assets/`, `src="`+prefix)
-	html = strings.ReplaceAll(html, `href="./assets/`, `href="`+prefix)
-	return []byte(html)
-}
-
-func adminAssetPrefix(requestPath string) string {
-	if requestPath == "/admin" || requestPath == "/" {
-		return "assets/"
-	}
-	return "../assets/"
-}
-
-func injectAdminTheme(body []byte, r *http.Request) []byte {
-	theme := r.URL.Query().Get("theme")
-	if theme == "" {
-		theme = r.Header.Get("X-Continuum-Theme")
-	}
-	if theme == "" {
-		theme = r.Header.Get("X-Continuum-User-Theme")
-	}
-	if theme == "" {
-		return body
-	}
-	html := string(body)
-	if strings.Contains(html, `<html lang="en">`) {
-		return []byte(strings.Replace(html, `<html lang="en">`, `<html lang="en" data-theme="`+theme+`">`, 1))
-	}
-	if strings.Contains(html, `<html`) {
-		return []byte(strings.Replace(html, `<html`, `<html data-theme="`+theme+`"`, 1))
-	}
-	return body
-}
-
-func orderStylesBeforeModules(body []byte) []byte {
-	html := string(body)
-	scriptStart := strings.Index(html, `  <script type="module"`)
-	linkStart := strings.Index(html, `  <link rel="stylesheet"`)
-	if scriptStart < 0 || linkStart < 0 || linkStart < scriptStart {
-		return body
-	}
-	scriptEnd := strings.Index(html[scriptStart:], "</script>")
-	if scriptEnd < 0 {
-		return body
-	}
-	scriptEnd += scriptStart + len("</script>")
-	linkEnd := strings.Index(html[linkStart:], ">")
-	if linkEnd < 0 {
-		return body
-	}
-	linkEnd += linkStart + 1
-
-	script := html[scriptStart:scriptEnd]
-	link := html[linkStart:linkEnd]
-	html = html[:scriptStart] + link + "\n" + script + html[scriptEnd:linkStart] + html[linkEnd:]
-	return []byte(html)
-}

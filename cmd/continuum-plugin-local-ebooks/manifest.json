@@ -3,6 +3,7 @@
   "version": "1.0.1",
   "checksum": "__CHECKSUM__",
   "continuum_api_version": "v1",
+  "category": "Books/Ebooks",
   "supported_platforms": [
     {
       "os": "linux",
@@ -62,6 +63,24 @@
       "access": "public"
     },
     {
+      "id": "file_api",
+      "method": "GET",
+      "path": "/api/v1/file/*",
+      "access": "public"
+    },
+    {
+      "id": "cover_api",
+      "method": "GET",
+      "path": "/api/v1/cover/*",
+      "access": "public"
+    },
+    {
+      "id": "catalog_public",
+      "method": "GET",
+      "path": "/catalog/*",
+      "access": "public"
+    },
+    {
       "id": "api",
       "method": "*",
       "path": "/api/v1/*",
@@ -97,6 +116,23 @@
             "label": "Connection URL",
             "control": "ADMIN_FORM_CONTROL_PASSWORD",
             "required": true,
+            "secret": true
+          }
+        ]
+      }
+    },
+    {
+      "key": "stream_signing_secret",
+      "title": "Media signing secret",
+      "description": "HMAC key shared with the ebooks portal's media_signing_secret. Must match exactly for signed cover and file URLs to validate.",
+      "json_schema": "{\"type\":\"object\",\"properties\":{\"value\":{\"type\":\"string\"}},\"required\":[\"value\"]}",
+      "required": false,
+      "admin_form": {
+        "fields": [
+          {
+            "key": "value",
+            "label": "HMAC secret (base64-encoded recommended)",
+            "control": "ADMIN_FORM_CONTROL_PASSWORD",
             "secret": true
           }
         ]

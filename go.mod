@@ -4,6 +4,7 @@ go 1.26.0
 
 require (
 	github.com/ContinuumApp/continuum-plugin-sdk v0.3.10
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/hashicorp/go-hclog v1.6.3
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728

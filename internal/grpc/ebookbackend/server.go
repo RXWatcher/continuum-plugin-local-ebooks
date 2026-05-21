@@ -13,7 +13,22 @@ import (
 	"strings"
 
 	"github.com/ContinuumApp/continuum-plugin-local-ebooks/internal/store"
+	"github.com/ContinuumApp/continuum-plugin-local-ebooks/internal/tokens"
 )
+
+// writeTokenError surfaces the appropriate status code for verification
+// failures: 503 when the plugin has no signing secret configured, 401 for
+// any other rejection (missing/invalid/expired token, book or file mismatch).
+func writeTokenError(w http.ResponseWriter, err error) {
+	w.Header().Set("Content-Type", "application/json")
+	if errors.Is(err, tokens.ErrSecretUnconfigured) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": "media signing secret not configured"})
+		return
+	}
+	w.WriteHeader(http.StatusUnauthorized)
+	_ = json.NewEncoder(w).Encode(map[string]any{"error": err.Error()})
+}
 
 // Store is the minimal store-layer interface the server depends on. Defined
 // here (not in package store) so unit tests can substitute a fake without
@@ -35,14 +50,17 @@ type Store interface {
 type Server struct {
 	store  Store
 	logger *slog.Logger
+	secret string // shared HMAC for signed media token verification
 }
 
 // NewServer constructs a Server. If logger is nil, slog.Default is used.
-func NewServer(s Store, logger *slog.Logger) *Server {
+// secret is the HMAC key shared with the ebooks portal — Cover() and File()
+// each require a valid signed ?token= matching the book id and file_idx.
+func NewServer(s Store, logger *slog.Logger, secret string) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Server{store: s, logger: logger}
+	return &Server{store: s, logger: logger, secret: secret}
 }
 
 // Libraries handles GET /catalog/libraries.
@@ -144,6 +162,12 @@ func (s *Server) Cover(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "id required")
 		return
 	}
+	// Route is declared public on the host plugin proxy; the signed media
+	// token in ?token= is the auth gate. file_idx=-1 for cover.
+	if _, err := tokens.Verify(s.secret, r.URL.Query().Get("token"), id, tokens.CoverFileIdx); err != nil {
+		writeTokenError(w, err)
+		return
+	}
 	bytes, contentType, err := s.store.GetCover(r.Context(), id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "no cover")
@@ -168,6 +192,12 @@ func (s *Server) File(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "id required")
+		return
+	}
+	// Route is declared public on the host plugin proxy; the signed media
+	// token in ?token= is the auth gate. file_idx=0 — ebooks single-file.
+	if _, err := tokens.Verify(s.secret, r.URL.Query().Get("token"), id, tokens.FileFileIdx); err != nil {
+		writeTokenError(w, err)
 		return
 	}
 	path, format, err := s.store.GetEbookPath(r.Context(), id)

@@ -6,15 +6,20 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/ContinuumApp/continuum-plugin-local-ebooks/internal/grpc/ebookbackend"
 	"github.com/ContinuumApp/continuum-plugin-local-ebooks/internal/server"
 	"github.com/ContinuumApp/continuum-plugin-local-ebooks/internal/store"
+	"github.com/ContinuumApp/continuum-plugin-local-ebooks/internal/tokens"
 )
 
 // --- transform unit tests --------------------------------------------------
@@ -155,9 +160,30 @@ func (f *fakeStore) ListGenres(_ context.Context, _ store.ListParams) (store.Pag
 	return f.genres, nil
 }
 
+const testSecret = "test-secret-with-enough-entropy-32"
+
+// signTestToken mints an HS256 token shaped like what the portal produces.
+// Returns the URL-encoded query value.
+func signTestToken(t *testing.T, bookID string, fileIdx int) string {
+	t.Helper()
+	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"aud":      tokens.Audience,
+		"sub":      "1",
+		"book_id":  bookID,
+		"file_idx": fileIdx,
+		"exp":      time.Now().Add(5 * time.Minute).Unix(),
+		"iat":      time.Now().Unix(),
+	})
+	s, err := tok.SignedString([]byte(testSecret))
+	if err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+	return url.QueryEscape(s)
+}
+
 func newTestServer(t *testing.T, fs *fakeStore) *httptest.Server {
 	t.Helper()
-	srv := ebookbackend.NewServer(fs, nil)
+	srv := ebookbackend.NewServer(fs, nil, testSecret)
 	mux := http.NewServeMux()
 	server.MountCatalog(mux, srv)
 	return httptest.NewServer(mux)
@@ -250,7 +276,7 @@ func TestCover_StreamsBytesWithContentType(t *testing.T) {
 	fs := &fakeStore{cover: []byte{0xff, 0xd8, 0xff}, coverContentType: "image/jpeg"}
 	ts := newTestServer(t, fs)
 	defer ts.Close()
-	res, err := http.Get(ts.URL + "/catalog/1/cover?size=large")
+	res, err := http.Get(ts.URL + "/catalog/1/cover?size=large&token=" + signTestToken(t, "1", tokens.CoverFileIdx))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +297,7 @@ func TestCover_NotFound(t *testing.T) {
 	fs := &fakeStore{coverErr: store.ErrNotFound}
 	ts := newTestServer(t, fs)
 	defer ts.Close()
-	res, err := http.Get(ts.URL + "/catalog/1/cover")
+	res, err := http.Get(ts.URL + "/catalog/1/cover?token=" + signTestToken(t, "1", tokens.CoverFileIdx))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -293,7 +319,7 @@ func TestFile_StreamsFileAndSetsHeaders(t *testing.T) {
 	ts := newTestServer(t, fs)
 	defer ts.Close()
 
-	res, err := http.Get(ts.URL + "/catalog/k/file")
+	res, err := http.Get(ts.URL + "/catalog/k/file?token=" + signTestToken(t, "k", tokens.FileFileIdx))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -318,7 +344,7 @@ func TestFile_NotFound(t *testing.T) {
 	fs := &fakeStore{pathErr: store.ErrNotFound}
 	ts := newTestServer(t, fs)
 	defer ts.Close()
-	res, err := http.Get(ts.URL + "/catalog/nope/file")
+	res, err := http.Get(ts.URL + "/catalog/nope/file?token=" + signTestToken(t, "nope", tokens.FileFileIdx))
 	if err != nil {
 		t.Fatal(err)
 	}

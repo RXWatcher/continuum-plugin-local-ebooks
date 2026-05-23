@@ -2,12 +2,12 @@
 
 Date: 2026-05-17
 Status: Approved (design); pending spec review before implementation planning.
-Plugin: `continuum-plugin-local-ebooks`
+Plugin: `silo-plugin-local-ebooks`
 
 ## 1. Problem & Goal
 
-`continuum-plugin-local-ebooks` scans local filesystem roots and exposes them
-to the `continuum-ebooks` portal as an `ebook_backend.v1` source. Operators
+`silo-plugin-local-ebooks` scans local filesystem roots and exposes them
+to the `silo-ebooks` portal as an `ebook_backend.v1` source. Operators
 need to run **multiple libraries, each with its own media type** (e.g.
 `/srv/books` = `book`, `/srv/comics` = `comics`, `/srv/manga` = `manga`).
 
@@ -37,14 +37,14 @@ In scope:
 
 Out of scope (explicitly):
 - Portal-side presentation libraries (`portal_library` in
-  `continuum-ebooks`) — a separate layer the portal admin owns.
+  `silo-ebooks`) — a separate layer the portal admin owns.
 - The M1 ebook-PK-churn fix (separate tracked follow-up; needs its own
   migration; not coupled to this work).
 - Authn/z in the SPA — the host enforces admin access on `/admin/*`.
 
 ## 3. Architecture & Serving
 
-- New `web/` SPA in the repo, mirroring `continuum-ebooks` exactly:
+- New `web/` SPA in the repo, mirroring `silo-ebooks` exactly:
   React 19 + Vite 5 + TypeScript + Tailwind 4 + shadcn/ui +
   `@tanstack/react-query` + `react-router`; layout `web/src/{pages,components,lib}`;
   `web/embed.go` with `//go:embed all:dist` exposing `FSEmbed()` /

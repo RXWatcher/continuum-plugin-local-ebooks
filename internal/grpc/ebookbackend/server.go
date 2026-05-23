@@ -12,8 +12,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/RXWatcher/continuum-plugin-local-ebooks/internal/store"
-	"github.com/RXWatcher/continuum-plugin-local-ebooks/internal/tokens"
+	"github.com/RXWatcher/silo-plugin-local-ebooks/internal/store"
+	"github.com/RXWatcher/silo-plugin-local-ebooks/internal/tokens"
 )
 
 // writeTokenError surfaces the appropriate status code for verification

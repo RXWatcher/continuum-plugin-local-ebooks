@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RXWatcher/continuum-plugin-local-ebooks/internal/metadata"
+	"github.com/RXWatcher/silo-plugin-local-ebooks/internal/metadata"
 )
 
 // An unknown/hostile region must never be interpolated into the Amazon host

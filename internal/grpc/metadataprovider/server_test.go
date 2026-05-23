@@ -4,11 +4,11 @@ import (
 	"context"
 	"testing"
 
-	pluginv1 "github.com/ContinuumApp/continuum-plugin-sdk/pkg/pluginproto/continuum/plugin/v1"
+	pluginv1 "github.com/ContinuumApp/continuum-plugin-sdk/pkg/pluginproto/silo/plugin/v1"
 	"google.golang.org/protobuf/types/known/structpb"
 
-	"github.com/RXWatcher/continuum-plugin-local-ebooks/internal/metadata"
-	"github.com/RXWatcher/continuum-plugin-local-ebooks/internal/metadata/sources"
+	"github.com/RXWatcher/silo-plugin-local-ebooks/internal/metadata"
+	"github.com/RXWatcher/silo-plugin-local-ebooks/internal/metadata/sources"
 )
 
 // fakeSrc satisfies sources.Source for tests.

@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/RXWatcher/continuum-plugin-local-ebooks/internal/metadata"
+	"github.com/RXWatcher/silo-plugin-local-ebooks/internal/metadata"
 )
 
 const gutenbergID = "gutenberg"

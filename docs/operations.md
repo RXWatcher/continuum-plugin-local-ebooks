@@ -1,6 +1,6 @@
 # Operations
 
-Day-to-day operator runbook for `continuum-plugin-local-ebooks`. The README
+Day-to-day operator runbook for `silo-plugin-local-ebooks`. The README
 covers what the plugin is and how to configure it; this file is the
 "what do I press, what does it do, what breaks" reference. For ingest
 failures by format see `troubleshooting.md`; for a UI tour see
@@ -15,13 +15,13 @@ A dedicated role and schema, both keyed `local_ebooks`:
 ```sql
 CREATE ROLE plugin_local_ebooks LOGIN PASSWORD '<set-something-strong>';
 CREATE SCHEMA local_ebooks AUTHORIZATION plugin_local_ebooks;
-GRANT CONNECT ON DATABASE continuum TO plugin_local_ebooks;
+GRANT CONNECT ON DATABASE silo TO plugin_local_ebooks;
 ```
 
 The DSN must set `search_path=local_ebooks`:
 
 ```
-postgres://plugin_local_ebooks:<pwd>@db.internal:5432/continuum?search_path=local_ebooks&sslmode=disable
+postgres://plugin_local_ebooks:<pwd>@db.internal:5432/silo?search_path=local_ebooks&sslmode=disable
 ```
 
 Migrations run on startup and are idempotent — re-running them against
@@ -238,11 +238,11 @@ from external sources subject to rate limits — for a large library
 this can take hours and burn through Google Books / ISBNdb quotas.
 
 ```
-pg_dump --schema=local_ebooks continuum > local_ebooks.sql
+pg_dump --schema=local_ebooks silo > local_ebooks.sql
 ```
 
 …run periodically is sufficient to skip the rescan + re-enrichment
 cost after a DR event.
 
 The host's global-config (DSN, signing secret, API keys) is **not**
-inside this schema. Back it up separately via the Continuum host.
+inside this schema. Back it up separately via the Silo host.

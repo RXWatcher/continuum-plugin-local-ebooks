@@ -1,6 +1,6 @@
 *.test
 *.out
-/continuum-plugin-local-ebooks
+/silo-plugin-local-ebooks
 .idea/
 .vscode/
 .claude/

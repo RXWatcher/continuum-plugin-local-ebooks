@@ -1,6 +1,6 @@
 # Admin Console
 
-`GET /admin` (labelled "Local Ebooks" in the Continuum host navigation)
+`GET /admin` (labelled "Local Ebooks" in the Silo host navigation)
 serves a single-file HTML/CSS/JS console from
 `internal/server/admin_home.go`. The same template skeleton is shared
 with the sibling `bw-audio`, `bw-ebook`, and `local-audiobooks`

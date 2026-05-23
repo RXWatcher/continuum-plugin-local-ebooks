@@ -1,8 +1,8 @@
-# Local Ebooks for Continuum
+# Local Ebooks for Silo
 
-`continuum.local-ebooks` is the filesystem-backed ebook backend for Continuum. It scans configured library directories on disk, ingests EPUB / PDF / MOBI / AZW / AZW3 / FB2 files, exposes catalog, cover, and file endpoints to the Ebooks portal, and ships an in-process metadata aggregator that fans out across fifteen external book-data sources.
+`silo.local-ebooks` is the filesystem-backed ebook backend for Silo. It scans configured library directories on disk, ingests EPUB / PDF / MOBI / AZW / AZW3 / FB2 files, exposes catalog, cover, and file endpoints to the Ebooks portal, and ships an in-process metadata aggregator that fans out across fifteen external book-data sources.
 
-The user-facing reader, OPDS/Kobo/Kindle integrations, and request workflow live in [`continuum-plugin-ebooks`](https://github.com/RXWatcher/continuum-plugin-ebooks). This plugin owns local discovery, ingestion, metadata, covers, and signed file access.
+The user-facing reader, OPDS/Kobo/Kindle integrations, and request workflow live in [`silo-plugin-ebooks`](https://github.com/RXWatcher/silo-plugin-ebooks). This plugin owns local discovery, ingestion, metadata, covers, and signed file access.
 
 ## Category
 
@@ -26,10 +26,10 @@ HTTP surface declared in the manifest:
 
 ## Dependencies
 
-- Consumed by [`continuum-plugin-ebooks`](https://github.com/RXWatcher/continuum-plugin-ebooks) (the portal) as an ebook backend and as a metadata provider. The portal must share the same `stream_signing_secret` so its `media_signing_secret` validates signed cover and file URLs issued here.
+- Consumed by [`silo-plugin-ebooks`](https://github.com/RXWatcher/silo-plugin-ebooks) (the portal) as an ebook backend and as a metadata provider. The portal must share the same `stream_signing_secret` so its `media_signing_secret` validates signed cover and file URLs issued here.
 - Standalone otherwise — the admin UI, scanner, and metadata aggregator all run without the portal installed, and an optional direct catalog listener is available via `standalone_http_listen`.
-- Host: [`github.com/ContinuumApp/continuum`](https://github.com/ContinuumApp/continuum). SDK: [`github.com/ContinuumApp/continuum-plugin-sdk`](https://github.com/ContinuumApp/continuum-plugin-sdk).
-- Sibling ebook plugins: [`continuum-plugin-ebooks`](https://github.com/RXWatcher/continuum-plugin-ebooks) (portal), [`continuum-plugin-bookwarehouse-ebook`](https://github.com/RXWatcher/continuum-plugin-bookwarehouse-ebook), [`continuum-plugin-ebook-requests`](https://github.com/RXWatcher/continuum-plugin-ebook-requests).
+- Host: [`github.com/ContinuumApp/silo`](https://github.com/ContinuumApp/silo). SDK: [`github.com/ContinuumApp/continuum-plugin-sdk`](https://github.com/ContinuumApp/continuum-plugin-sdk).
+- Sibling ebook plugins: [`silo-plugin-ebooks`](https://github.com/RXWatcher/silo-plugin-ebooks) (portal), [`silo-plugin-bookwarehouse-ebook`](https://github.com/RXWatcher/silo-plugin-bookwarehouse-ebook), [`silo-plugin-ebook-requests`](https://github.com/RXWatcher/silo-plugin-ebook-requests).
 
 ## External services
 
@@ -57,7 +57,7 @@ Library entries can also be tagged with a `media_type` of `book`, `comics`, `man
 
 ## Metadata providers
 
-The aggregator (`internal/metadata/sources`) ships with fifteen providers, all registered in `cmd/continuum-plugin-local-ebooks/main.go`:
+The aggregator (`internal/metadata/sources`) ships with fifteen providers, all registered in `cmd/silo-plugin-local-ebooks/main.go`:
 
 - **OpenLibrary** — anonymous JSON API; primary fallback source.
 - **GoogleBooks** — uses `googlebooks_api_key` if set, otherwise anonymous quota.
@@ -121,7 +121,7 @@ Postgres bootstrap:
 ```sql
 CREATE ROLE plugin_local_ebooks WITH LOGIN PASSWORD '<chosen>';
 CREATE SCHEMA local_ebooks AUTHORIZATION plugin_local_ebooks;
-GRANT CONNECT ON DATABASE continuum TO plugin_local_ebooks;
+GRANT CONNECT ON DATABASE silo TO plugin_local_ebooks;
 ```
 
 ## Detailed docs
@@ -134,9 +134,9 @@ GRANT CONNECT ON DATABASE continuum TO plugin_local_ebooks;
 ## Build and release
 
 ```bash
-make build   # go build -o continuum-plugin-local-ebooks ./cmd/continuum-plugin-local-ebooks
+make build   # go build -o silo-plugin-local-ebooks ./cmd/silo-plugin-local-ebooks
 make test    # go test ./...
 make fmt
 ```
 
-CI builds linux-amd64 binaries on push to main via the reusable workflow in [RXWatcher/continuum-plugin-repository](https://github.com/RXWatcher/continuum-plugin-repository) and publishes them to the catalog at [`./binaries/`](https://github.com/RXWatcher/continuum-plugin-repository/tree/main/binaries).
+CI builds linux-amd64 binaries on push to main via the reusable workflow in [RXWatcher/silo-plugin-repository](https://github.com/RXWatcher/silo-plugin-repository) and publishes them to the catalog at [`./binaries/`](https://github.com/RXWatcher/silo-plugin-repository/tree/main/binaries).

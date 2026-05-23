@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/RXWatcher/continuum-plugin-local-ebooks/internal/libcfg"
-	"github.com/RXWatcher/continuum-plugin-local-ebooks/internal/store"
+	"github.com/RXWatcher/silo-plugin-local-ebooks/internal/libcfg"
+	"github.com/RXWatcher/silo-plugin-local-ebooks/internal/store"
 )
 
 // LibraryStore is the store surface the library admin handlers need.

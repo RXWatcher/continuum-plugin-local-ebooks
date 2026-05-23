@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RXWatcher/continuum-plugin-local-ebooks/internal/store"
+	"github.com/RXWatcher/silo-plugin-local-ebooks/internal/store"
 )
 
 type fakeLibStore struct {

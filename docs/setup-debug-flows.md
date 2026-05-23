@@ -18,7 +18,7 @@ HTTP mux:
 
 ```
                 ┌─────────────────────────────────────────┐
-                │ continuum-plugin-local-ebooks (process) │
+                │ silo-plugin-local-ebooks (process) │
                 └─────────────────────────────────────────┘
                                   │
         ┌─────────────────────────┼─────────────────────────────────┐
@@ -38,14 +38,14 @@ HTTP mux:
 
 Two HTTP servers can host the same mux:
 
-- **Host-mounted** (always on) — the Continuum host loads the manifest's
+- **Host-mounted** (always on) — the Silo host loads the manifest's
   `http_routes.v1` declaration and proxies traffic to the plugin via gRPC.
   Public/authenticated/admin scopes are enforced by the host.
 - **Standalone listener** (opt-in via `standalone_http_listen`) — the
   plugin binds its own listener and serves the *same* handler tree
   (`internal/httproutes/server.go`). Useful when the portal is offline or
   when running the catalog directly from another integration. The
-  standalone handler strips `X-Continuum-*` headers from inbound requests
+  standalone handler strips `X-Silo-*` headers from inbound requests
   to avoid header smuggling.
 
 When both are active, both serve from the same in-memory state — there is
@@ -143,7 +143,7 @@ and reactivation.
 ## 5. Metadata source coordination
 
 Fifteen sources live under `internal/metadata/sources/`, all registered
-in `cmd/continuum-plugin-local-ebooks/main.go` and listed in the README.
+in `cmd/silo-plugin-local-ebooks/main.go` and listed in the README.
 Three accept API keys:
 
 | Source | Key | Behavior when missing |
@@ -200,12 +200,12 @@ the host-mounted routes. Use cases:
 - Direct OPDS-style catalog access from another plugin or tool while the
   Ebooks portal is offline or not installed.
 - Local development against the catalog without standing up the full
-  Continuum host stack.
+  Silo host stack.
 - Health probing from an external monitor that does not route through
-  the Continuum host.
+  the Silo host.
 
 The listener has no built-in auth — protect it with a network ACL or
-reverse-proxy in front of it. The `X-Continuum-*` header strip
+reverse-proxy in front of it. The `X-Silo-*` header strip
 (`internal/httproutes/server.go`) prevents the standalone path from
 being abused to forge host-context headers.
 
@@ -217,7 +217,7 @@ Leave the value empty (default) to disable.
 
 ```
 ┌───────────────────────────────┐                 ┌──────────────────────────────┐
-│ continuum-plugin-ebooks       │                 │ continuum-plugin-local-      │
+│ silo-plugin-ebooks       │                 │ silo-plugin-local-      │
 │ (portal)                      │                 │ ebooks (this plugin)         │
 └───────────────────────────────┘                 └──────────────────────────────┘
               │                                                  │

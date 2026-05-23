@@ -3,7 +3,7 @@ package store
 import (
 	"context"
 
-	"github.com/RXWatcher/continuum-plugin-local-ebooks/internal/metadata"
+	"github.com/RXWatcher/silo-plugin-local-ebooks/internal/metadata"
 )
 
 // MetadataQueueStats summarizes enrichment work for admin diagnostics.

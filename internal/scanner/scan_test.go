@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RXWatcher/continuum-plugin-local-ebooks/internal/ebookparse"
-	"github.com/RXWatcher/continuum-plugin-local-ebooks/internal/store"
+	"github.com/RXWatcher/silo-plugin-local-ebooks/internal/ebookparse"
+	"github.com/RXWatcher/silo-plugin-local-ebooks/internal/store"
 )
 
 // fakeStore models the real store invariant under test (M1): the ebook id is

@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/RXWatcher/continuum-plugin-local-ebooks/internal/migrate"
+	"github.com/RXWatcher/silo-plugin-local-ebooks/internal/migrate"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 

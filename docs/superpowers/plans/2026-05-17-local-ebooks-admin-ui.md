@@ -2,15 +2,15 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add an admin operator console (web UI + REST API) to `continuum-plugin-local-ebooks` that owns multi-library / multi-media-type configuration, making the plugin DB the source of truth and `Configure` a non-destructive seed.
+**Goal:** Add an admin operator console (web UI + REST API) to `silo-plugin-local-ebooks` that owns multi-library / multi-media-type configuration, making the plugin DB the source of truth and `Configure` a non-destructive seed.
 
-**Architecture:** Plugin DB `library_path` table is authoritative; an admin REST API does CRUD; `Configure` switches to insert-if-absent seed; a React/Vite SPA (mirroring `continuum-ebooks/web`) is embedded via `go:embed` and served under the host-admin-gated `/admin/*` route.
+**Architecture:** Plugin DB `library_path` table is authoritative; an admin REST API does CRUD; `Configure` switches to insert-if-absent seed; a React/Vite SPA (mirroring `silo-ebooks/web`) is embedded via `go:embed` and served under the host-admin-gated `/admin/*` route.
 
 **Tech Stack:** Go (pgx, stdlib `net/http`), React 19 + Vite 5 + TypeScript + Tailwind 4 + shadcn/ui + @tanstack/react-query + react-router.
 
 Spec: `docs/superpowers/specs/2026-05-17-local-ebooks-admin-ui-design.md`
 
-Conventions: run all Go commands from the repo root `/opt/continuum_plugins/continuum-plugin-local-ebooks`. DB-backed store tests skip automatically when Postgres is unreachable (existing `internal/store` harness) — that is expected, not a failure.
+Conventions: run all Go commands from the repo root `/opt/silo_plugins/silo-plugin-local-ebooks`. DB-backed store tests skip automatically when Postgres is unreachable (existing `internal/store` harness) — that is expected, not a failure.
 
 ---
 
@@ -20,14 +20,14 @@ Created:
 - `internal/migrate/files/0003_library_path_timestamps.up.sql` / `.down.sql` — add `created_at`/`updated_at`.
 - `internal/libcfg/libcfg.go` (+ `libcfg_test.go`) — pure validation (media type, path) shared by API and seed.
 - `internal/server/libraries.go` (+ `libraries_test.go`) — admin library CRUD + per-library scan HTTP handlers.
-- `web/` — SPA (scaffold copied from `continuum-ebooks/web`), `web/embed.go`, `web/src/{App.tsx,main.tsx,lib/api.ts,pages/*}`.
+- `web/` — SPA (scaffold copied from `silo-ebooks/web`), `web/embed.go`, `web/src/{App.tsx,main.tsx,lib/api.ts,pages/*}`.
 - `docs/superpowers/plans/...` (this file).
 
 Modified:
 - `internal/store/library.go` — add `CreateLibrary`, `UpdateLibrary`, `DeleteLibrary`, `SeedLibraryPath`; add `LibraryInput`/`LibraryUpdate` types; add timestamps to `LibraryPath`.
 - `internal/server/admin.go` — extend `AdminStore` interface + `AdminDeps`; mount library routes; expose metadata-queue endpoint.
-- `cmd/continuum-plugin-local-ebooks/main.go` — Configure uses `SeedLibraryPath`; wire library handlers + per-library scan fn + SPA static serving.
-- `cmd/continuum-plugin-local-ebooks/manifest.json` — add `assets` route; mark `admin` navigable.
+- `cmd/silo-plugin-local-ebooks/main.go` — Configure uses `SeedLibraryPath`; wire library handlers + per-library scan fn + SPA static serving.
+- `cmd/silo-plugin-local-ebooks/manifest.json` — add `assets` route; mark `admin` navigable.
 - `Makefile` — add web build target feeding `web/dist` before `go build`.
 
 ---
@@ -175,7 +175,7 @@ func NormalizePath(p string) (string, error) {
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `go test ./internal/libcfg/`
-Expected: `ok  github.com/RXWatcher/continuum-plugin-local-ebooks/internal/libcfg`.
+Expected: `ok  github.com/RXWatcher/silo-plugin-local-ebooks/internal/libcfg`.
 
 - [ ] **Step 5: Commit**
 
@@ -420,11 +420,11 @@ git commit -m "feat(store): library CRUD + non-destructive seed"
 ### Task 5: Configure uses the non-destructive seed
 
 **Files:**
-- Modify: `cmd/continuum-plugin-local-ebooks/main.go:160-166`
+- Modify: `cmd/silo-plugin-local-ebooks/main.go:160-166`
 
 - [ ] **Step 1: Replace the destructive upsert loop with the seed**
 
-In `cmd/continuum-plugin-local-ebooks/main.go`, replace the library config loop (currently calling `st.UpsertLibraryPathConfig`):
+In `cmd/silo-plugin-local-ebooks/main.go`, replace the library config loop (currently calling `st.UpsertLibraryPathConfig`):
 
 ```go
 		for _, lib := range cfg.Libraries {
@@ -448,7 +448,7 @@ Expected: exit 0.
 - [ ] **Step 3: Commit**
 
 ```bash
-git add cmd/continuum-plugin-local-ebooks/main.go
+git add cmd/silo-plugin-local-ebooks/main.go
 git commit -m "feat: Configure seeds libraries non-destructively (plugin DB is source of truth)"
 ```
 
@@ -475,7 +475,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/RXWatcher/continuum-plugin-local-ebooks/internal/store"
+	"github.com/RXWatcher/silo-plugin-local-ebooks/internal/store"
 )
 
 type fakeLibStore struct {
@@ -583,8 +583,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/RXWatcher/continuum-plugin-local-ebooks/internal/libcfg"
-	"github.com/RXWatcher/continuum-plugin-local-ebooks/internal/store"
+	"github.com/RXWatcher/silo-plugin-local-ebooks/internal/libcfg"
+	"github.com/RXWatcher/silo-plugin-local-ebooks/internal/store"
 )
 
 // LibraryStore is the store surface the library admin handlers need.
@@ -754,7 +754,7 @@ git commit -m "feat(server): admin library CRUD + per-library scan endpoints"
 ### Task 7: Wire library routes + per-library scan + metadata-queue endpoint into main
 
 **Files:**
-- Modify: `cmd/continuum-plugin-local-ebooks/main.go` (Configure callback, near `server.MountAdminWithDeps`, ~line 205)
+- Modify: `cmd/silo-plugin-local-ebooks/main.go` (Configure callback, near `server.MountAdminWithDeps`, ~line 205)
 - Modify: `internal/server/admin.go` (add `GET /admin/metadata/queue`)
 
 - [ ] **Step 1: Add the metadata-queue endpoint**
@@ -776,7 +776,7 @@ In `internal/server/admin.go`, inside `MountAdminWithDeps`, in the `if deps.Stor
 
 - [ ] **Step 2: Wire library routes + per-library scan in main**
 
-In `cmd/continuum-plugin-local-ebooks/main.go`, immediately after the existing `server.MountAdminWithDeps(mux, server.AdminDeps{...})` call, add:
+In `cmd/silo-plugin-local-ebooks/main.go`, immediately after the existing `server.MountAdminWithDeps(mux, server.AdminDeps{...})` call, add:
 
 ```go
 		server.MountLibraryRoutes(mux, server.LibraryDeps{
@@ -790,7 +790,7 @@ In `cmd/continuum-plugin-local-ebooks/main.go`, immediately after the existing `
 
 - [ ] **Step 3: Add `runScanOne` next to `runScan`**
 
-In `cmd/continuum-plugin-local-ebooks/main.go`, factor a single-library scan beside `runScan` (reuses `scanner.Walk` + the scan_event audit path). Add this function near `runScan`:
+In `cmd/silo-plugin-local-ebooks/main.go`, factor a single-library scan beside `runScan` (reuses `scanner.Walk` + the scan_event audit path). Add this function near `runScan`:
 
 ```go
 	runScanOne := func(ctx context.Context, lpID int64) (int64, error) {
@@ -849,7 +849,7 @@ Expected: build/vet clean; all packages `ok` (store may SKIP without Postgres).
 - [ ] **Step 5: Commit**
 
 ```bash
-git add cmd/continuum-plugin-local-ebooks/main.go internal/server/admin.go
+git add cmd/silo-plugin-local-ebooks/main.go internal/server/admin.go
 git commit -m "feat: wire library admin routes, per-library scan, metadata queue endpoint"
 ```
 
@@ -860,19 +860,19 @@ git commit -m "feat: wire library admin routes, per-library scan, metadata queue
 ### Task 8: Copy the proven SPA toolchain from the ebooks portal
 
 **Files:**
-- Create: `web/` (config + scaffold copied from `/opt/continuum_plugins/continuum-plugin-ebooks/web`)
+- Create: `web/` (config + scaffold copied from `/opt/silo_plugins/silo-plugin-ebooks/web`)
 - Create: `web/embed.go`
 
 - [ ] **Step 1: Copy build config + embed (verbatim, proven setup)**
 
 ```bash
-cd /opt/continuum_plugins/continuum-plugin-local-ebooks
+cd /opt/silo_plugins/silo-plugin-local-ebooks
 mkdir -p web/src
-cp /opt/continuum_plugins/continuum-plugin-ebooks/web/{package.json,pnpm-lock.yaml,vite.config.ts,tsconfig.json,tsconfig.node.json,components.json,index.html,embed.go,.gitignore} web/ 2>/dev/null || true
-cp -r /opt/continuum_plugins/continuum-plugin-ebooks/web/src/components/ui web/src/components/ui
-cp /opt/continuum_plugins/continuum-plugin-ebooks/web/src/index.css web/src/index.css
-cp /opt/continuum_plugins/continuum-plugin-ebooks/web/src/lib/utils.ts web/src/lib/utils.ts
-cp /opt/continuum_plugins/continuum-plugin-ebooks/web/src/lib/queryClient.ts web/src/lib/queryClient.ts
+cp /opt/silo_plugins/silo-plugin-ebooks/web/{package.json,pnpm-lock.yaml,vite.config.ts,tsconfig.json,tsconfig.node.json,components.json,index.html,embed.go,.gitignore} web/ 2>/dev/null || true
+cp -r /opt/silo_plugins/silo-plugin-ebooks/web/src/components/ui web/src/components/ui
+cp /opt/silo_plugins/silo-plugin-ebooks/web/src/index.css web/src/index.css
+cp /opt/silo_plugins/silo-plugin-ebooks/web/src/lib/utils.ts web/src/lib/utils.ts
+cp /opt/silo_plugins/silo-plugin-ebooks/web/src/lib/queryClient.ts web/src/lib/queryClient.ts
 ```
 
 - [ ] **Step 2: Confirm `web/embed.go` package + go:embed**
@@ -898,13 +898,13 @@ Expected: `dist/` produced, `✓ built`.
 
 - [ ] **Step 4: Verify Go embed compiles against produced dist**
 
-Run: `cd /opt/continuum_plugins/continuum-plugin-local-ebooks && go build ./...`
+Run: `cd /opt/silo_plugins/silo-plugin-local-ebooks && go build ./...`
 Expected: exit 0 (embed finds `web/dist`).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /opt/continuum_plugins/continuum-plugin-local-ebooks
+cd /opt/silo_plugins/silo-plugin-local-ebooks
 git add web/.gitignore web/package.json web/pnpm-lock.yaml web/vite.config.ts web/tsconfig.json web/tsconfig.node.json web/components.json web/index.html web/embed.go web/src/
 git commit -m "chore(web): scaffold SPA toolchain (copied from ebooks portal)"
 ```
@@ -914,13 +914,13 @@ git commit -m "chore(web): scaffold SPA toolchain (copied from ebooks portal)"
 ### Task 9: Serve the SPA + manifest routes + Makefile
 
 **Files:**
-- Modify: `cmd/continuum-plugin-local-ebooks/main.go` (mux: static + SPA fallback)
-- Modify: `cmd/continuum-plugin-local-ebooks/manifest.json`
+- Modify: `cmd/silo-plugin-local-ebooks/main.go` (mux: static + SPA fallback)
+- Modify: `cmd/silo-plugin-local-ebooks/manifest.json`
 - Modify: `Makefile`
 
 - [ ] **Step 1: Add static + SPA fallback to the mux**
 
-In `cmd/continuum-plugin-local-ebooks/main.go`, after all `mux.HandleFunc(...)` admin/api registrations and before `httpSrv.SetHandler(mux)`, add (import `web "github.com/RXWatcher/continuum-plugin-local-ebooks/web"` and `io/fs`, `strings`, `net/http` as needed):
+In `cmd/silo-plugin-local-ebooks/main.go`, after all `mux.HandleFunc(...)` admin/api registrations and before `httpSrv.SetHandler(mux)`, add (import `web "github.com/RXWatcher/silo-plugin-local-ebooks/web"` and `io/fs`, `strings`, `net/http` as needed):
 
 ```go
 		webFS := web.FS()
@@ -952,7 +952,7 @@ In `cmd/continuum-plugin-local-ebooks/main.go`, after all `mux.HandleFunc(...)` 
 
 - [ ] **Step 2: Update the manifest**
 
-In `cmd/continuum-plugin-local-ebooks/manifest.json`, in `http_routes`, add an `assets` route and mark `admin` navigable. The `http_routes` array becomes:
+In `cmd/silo-plugin-local-ebooks/manifest.json`, in `http_routes`, add an `assets` route and mark `admin` navigable. The `http_routes` array becomes:
 
 ```json
   "http_routes": [
@@ -979,13 +979,13 @@ build: web
 
 - [ ] **Step 4: Verify**
 
-Run: `cd /opt/continuum_plugins/continuum-plugin-local-ebooks && make web && go build ./... && go vet ./...`
+Run: `cd /opt/silo_plugins/silo-plugin-local-ebooks && make web && go build ./... && go vet ./...`
 Expected: web `✓ built`; Go build/vet exit 0.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add cmd/continuum-plugin-local-ebooks/main.go cmd/continuum-plugin-local-ebooks/manifest.json Makefile
+git add cmd/silo-plugin-local-ebooks/main.go cmd/silo-plugin-local-ebooks/manifest.json Makefile
 git commit -m "feat: serve embedded admin SPA under /admin; manifest assets+navigable"
 ```
 
@@ -1072,7 +1072,7 @@ Expected: builds (no app yet referencing it is fine; tsc passes).
 - [ ] **Step 3: Commit**
 
 ```bash
-cd /opt/continuum_plugins/continuum-plugin-local-ebooks
+cd /opt/silo_plugins/silo-plugin-local-ebooks
 git add web/src/lib/api.ts
 git commit -m "feat(web): admin API client"
 ```
@@ -1255,7 +1255,7 @@ Expected: `✓ built`, no TS errors. (If `@/components/ui/sonner` or `table` is 
 
 - [ ] **Step 5: Verify Go embed builds with the real bundle**
 
-Run: `cd /opt/continuum_plugins/continuum-plugin-local-ebooks && go build ./...`
+Run: `cd /opt/silo_plugins/silo-plugin-local-ebooks && go build ./...`
 Expected: exit 0.
 
 - [ ] **Step 6: Commit**
@@ -1401,7 +1401,7 @@ git commit -m "feat(web): Scans, Metadata, Diagnostics pages"
 
 - [ ] **Step 1: Backend**
 
-Run: `cd /opt/continuum_plugins/continuum-plugin-local-ebooks && go build ./... && go vet ./... && go test ./...`
+Run: `cd /opt/silo_plugins/silo-plugin-local-ebooks && go build ./... && go vet ./... && go test ./...`
 Expected: build/vet clean; all packages `ok` (`internal/store` may SKIP without Postgres — acceptable).
 
 - [ ] **Step 2: Frontend**
@@ -1411,7 +1411,7 @@ Expected: `✓ built`, zero TS errors.
 
 - [ ] **Step 3: Manifest sanity**
 
-Run: `python3 -c "import json,sys; json.load(open('cmd/continuum-plugin-local-ebooks/manifest.json'))" && echo OK`
+Run: `python3 -c "import json,sys; json.load(open('cmd/silo-plugin-local-ebooks/manifest.json'))" && echo OK`
 Expected: `OK`.
 
 - [ ] **Step 4: Final commit (if anything uncommitted)**

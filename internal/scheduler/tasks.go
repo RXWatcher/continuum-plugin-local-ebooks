@@ -8,10 +8,10 @@ import (
 	"strings"
 	"sync/atomic"
 
-	pluginv1 "github.com/ContinuumApp/continuum-plugin-sdk/pkg/pluginproto/continuum/plugin/v1"
+	pluginv1 "github.com/ContinuumApp/continuum-plugin-sdk/pkg/pluginproto/silo/plugin/v1"
 )
 
-// taskID extracts the capability id from a scheduled-task key. The Continuum
+// taskID extracts the capability id from a scheduled-task key. The Silo
 // host sends "plugin:<installationID>:<capabilityID>" (task_registry
 // pluginTaskKey); bare ids may arrive from host integration tests. This
 // plugin's capability ids contain no ':'.

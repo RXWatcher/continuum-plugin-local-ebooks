@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"time"
 
-	pluginrt "github.com/RXWatcher/continuum-plugin-local-ebooks/internal/runtime"
-	"github.com/RXWatcher/continuum-plugin-local-ebooks/internal/store"
+	pluginrt "github.com/RXWatcher/silo-plugin-local-ebooks/internal/runtime"
+	"github.com/RXWatcher/silo-plugin-local-ebooks/internal/store"
 )
 
 // BackfillStore is the surface admin.go needs from *store.Store.
@@ -155,7 +155,7 @@ func handleDiagnostics(w http.ResponseWriter, r *http.Request, deps AdminDeps) {
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"plugin_id":    "continuum.local-ebooks",
+		"plugin_id":    "silo.local-ebooks",
 		"role":         "library_source_and_metadata_provider",
 		"database":     db,
 		"libraries":    paths,
